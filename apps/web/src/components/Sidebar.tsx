@@ -345,9 +345,12 @@ export default function Sidebar() {
   );
   const threadGitStatusQueries = useQueries({
     queries: threadGitStatusCwds.map((cwd) => ({
-      ...gitStatusQueryOptions(cwd),
-      staleTime: 30_000,
-      refetchInterval: 60_000,
+      ...gitStatusQueryOptions({
+        cwd,
+        autoRefresh: appSettings.enableGitStatusAutoRefresh,
+        staleTimeMs: 30_000,
+        refetchIntervalMs: 60_000,
+      }),
     })),
   });
   const prByThreadId = useMemo(() => {

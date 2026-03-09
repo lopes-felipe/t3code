@@ -478,6 +478,51 @@ function SettingsRouteView() {
 
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4">
+                <h2 className="text-sm font-medium text-foreground">Git</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Control background git status and PR refresh behavior.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Auto-refresh git status</p>
+                  <p className="text-xs text-muted-foreground">
+                    {settings.enableGitStatusAutoRefresh
+                      ? "Keeps git status and PR state refreshed automatically."
+                      : "Stops background refreshes, but git status still loads when opened and after explicit git actions."}
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.enableGitStatusAutoRefresh}
+                  onCheckedChange={(checked) =>
+                    updateSettings({
+                      enableGitStatusAutoRefresh: Boolean(checked),
+                    })
+                  }
+                  aria-label="Auto-refresh git status"
+                />
+              </div>
+
+              {settings.enableGitStatusAutoRefresh !== defaults.enableGitStatusAutoRefresh ? (
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() =>
+                      updateSettings({
+                        enableGitStatusAutoRefresh: defaults.enableGitStatusAutoRefresh,
+                      })
+                    }
+                  >
+                    Restore default
+                  </Button>
+                </div>
+              ) : null}
+            </section>
+
+            <section className="rounded-2xl border border-border bg-card p-5">
+              <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Responses</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Control how assistant output is rendered during a turn.
