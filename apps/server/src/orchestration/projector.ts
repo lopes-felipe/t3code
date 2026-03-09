@@ -259,6 +259,7 @@ export function projectEvent(
             worktreePath: payload.worktreePath,
             latestTurn: null,
             createdAt: payload.createdAt,
+            lastInteractionAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             deletedAt: null,
             messages: [],
@@ -386,9 +387,23 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             messages: cappedMessages,
+            lastInteractionAt: event.occurredAt,
             updatedAt: event.occurredAt,
           }),
         };
+      });
+
+    case "thread.turn-interrupt-requested":
+    case "thread.approval-response-requested":
+    case "thread.user-input-response-requested":
+    case "thread.session-stop-requested":
+    case "thread.checkpoint-revert-requested":
+      return Effect.succeed({
+        ...nextBase,
+        threads: updateThread(nextBase.threads, event.payload.threadId, {
+          lastInteractionAt: event.occurredAt,
+          updatedAt: event.occurredAt,
+        }),
       });
 
     case "thread.session-set":
@@ -467,6 +482,7 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             proposedPlans,
+            lastInteractionAt: event.occurredAt,
             updatedAt: event.occurredAt,
           }),
         };
@@ -535,6 +551,7 @@ export function projectEvent(
               completedAt: payload.completedAt,
               assistantMessageId: payload.assistantMessageId,
             },
+            lastInteractionAt: event.occurredAt,
             updatedAt: event.occurredAt,
           }),
         };
@@ -585,6 +602,7 @@ export function projectEvent(
               proposedPlans,
               activities,
               latestTurn,
+              lastInteractionAt: event.occurredAt,
               updatedAt: event.occurredAt,
             }),
           };
@@ -615,6 +633,7 @@ export function projectEvent(
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               activities,
+              lastInteractionAt: event.occurredAt,
               updatedAt: event.occurredAt,
             }),
           };

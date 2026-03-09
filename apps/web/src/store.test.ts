@@ -26,6 +26,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     proposedPlans: [],
     error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
+    lastInteractionAt: "2026-02-13T00:00:00.000Z",
     latestTurn: null,
     branch: null,
     worktreePath: null,
@@ -41,6 +42,7 @@ function makeState(thread: Thread): AppState {
         name: "Project",
         cwd: "/tmp/project",
         model: "gpt-5-codex",
+        createdAt: "2026-02-13T00:00:00.000Z",
         expanded: true,
         scripts: [],
       },
@@ -62,6 +64,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     worktreePath: null,
     latestTurn: null,
     createdAt: "2026-02-27T00:00:00.000Z",
+    lastInteractionAt: "2026-02-27T00:00:00.000Z",
     updatedAt: "2026-02-27T00:00:00.000Z",
     deletedAt: null,
     messages: [],
@@ -202,6 +205,24 @@ describe("store read model sync", () => {
     const next = syncServerReadModel(initialState, readModel);
 
     expect(next.threads[0]?.model).toBe(DEFAULT_MODEL_BY_PROVIDER.codex);
+  });
+
+  it("seeds lastVisitedAt from lastInteractionAt for newly hydrated threads", () => {
+    const initialState: AppState = {
+      projects: [],
+      threads: [],
+      threadsHydrated: false,
+    };
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        lastInteractionAt: "2026-02-27T00:05:00.000Z",
+        updatedAt: "2026-02-27T00:10:00.000Z",
+      }),
+    );
+
+    const next = syncServerReadModel(initialState, readModel);
+
+    expect(next.threads[0]?.lastVisitedAt).toBe("2026-02-27T00:05:00.000Z");
   });
 
   it("preserves the current project order when syncing incoming read model updates", () => {

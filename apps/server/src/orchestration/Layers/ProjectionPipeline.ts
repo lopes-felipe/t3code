@@ -427,6 +427,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             worktreePath: event.payload.worktreePath,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
+            lastInteractionAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
             deletedAt: null,
           });
@@ -509,6 +510,26 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           }
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
+            lastInteractionAt: event.occurredAt,
+            updatedAt: event.occurredAt,
+          });
+          return;
+        }
+
+        case "thread.turn-interrupt-requested":
+        case "thread.approval-response-requested":
+        case "thread.user-input-response-requested":
+        case "thread.session-stop-requested":
+        case "thread.checkpoint-revert-requested": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            lastInteractionAt: event.occurredAt,
             updatedAt: event.occurredAt,
           });
           return;
@@ -539,6 +560,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             latestTurnId: event.payload.turnId,
+            lastInteractionAt: event.occurredAt,
             updatedAt: event.occurredAt,
           });
           return;
@@ -554,6 +576,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             latestTurnId: null,
+            lastInteractionAt: event.occurredAt,
             updatedAt: event.occurredAt,
           });
           return;

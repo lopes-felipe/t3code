@@ -47,7 +47,7 @@ export function gitStatusQueryOptions({
       return api.git.status({ cwd });
     },
     enabled: cwd !== null,
-    staleTime: staleTimeMs ?? GIT_STATUS_STALE_TIME_MS,
+    staleTime: autoRefresh ? (staleTimeMs ?? GIT_STATUS_STALE_TIME_MS) : Infinity,
     refetchOnWindowFocus: autoRefresh ? "always" : false,
     refetchOnReconnect: autoRefresh ? "always" : false,
     refetchInterval: autoRefresh ? (refetchIntervalMs ?? GIT_STATUS_REFETCH_INTERVAL_MS) : false,
@@ -68,7 +68,7 @@ export function gitBranchesQueryOptions({
       return api.git.listBranches({ cwd });
     },
     enabled: cwd !== null,
-    staleTime: staleTimeMs ?? GIT_BRANCHES_STALE_TIME_MS,
+    staleTime: autoRefresh ? (staleTimeMs ?? GIT_BRANCHES_STALE_TIME_MS) : Infinity,
     refetchOnWindowFocus: autoRefresh,
     refetchOnReconnect: autoRefresh,
     refetchInterval: autoRefresh ? (refetchIntervalMs ?? GIT_BRANCHES_REFETCH_INTERVAL_MS) : false,

@@ -30,6 +30,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           worktree_path,
           latest_turn_id,
           created_at,
+          last_interaction_at,
           updated_at,
           deleted_at
         )
@@ -44,6 +45,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.worktreePath},
           ${row.latestTurnId},
           ${row.createdAt},
+          ${row.lastInteractionAt},
           ${row.updatedAt},
           ${row.deletedAt}
         )
@@ -58,6 +60,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           worktree_path = excluded.worktree_path,
           latest_turn_id = excluded.latest_turn_id,
           created_at = excluded.created_at,
+          last_interaction_at = excluded.last_interaction_at,
           updated_at = excluded.updated_at,
           deleted_at = excluded.deleted_at
       `,
@@ -79,6 +82,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           worktree_path AS "worktreePath",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
+          last_interaction_at AS "lastInteractionAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
         FROM projection_threads
@@ -102,11 +106,12 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           worktree_path AS "worktreePath",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
+          last_interaction_at AS "lastInteractionAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
         FROM projection_threads
         WHERE project_id = ${projectId}
-        ORDER BY created_at ASC, thread_id ASC
+        ORDER BY last_interaction_at DESC, created_at DESC, thread_id DESC
       `,
   });
 

@@ -216,6 +216,7 @@ function createSnapshotForTargetUser(options: {
         worktreePath: null,
         latestTurn: null,
         createdAt: NOW_ISO,
+        lastInteractionAt: NOW_ISO,
         updatedAt: NOW_ISO,
         deletedAt: null,
         messages,

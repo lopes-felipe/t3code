@@ -143,7 +143,18 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
         FROM projection_projects
-        ORDER BY created_at ASC, project_id ASC
+        ORDER BY
+          COALESCE(
+            (
+              SELECT MAX(child.last_interaction_at)
+              FROM projection_threads AS child
+              WHERE child.project_id = projection_projects.project_id
+                AND child.deleted_at IS NULL
+            ),
+            projection_projects.created_at
+          ) DESC,
+          projection_projects.created_at DESC,
+          projection_projects.project_id DESC
       `,
   });
 
@@ -163,10 +174,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           worktree_path AS "worktreePath",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
+          last_interaction_at AS "lastInteractionAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
         FROM projection_threads
-        ORDER BY created_at ASC, thread_id ASC
+        ORDER BY last_interaction_at DESC, created_at DESC, thread_id DESC
       `,
   });
 
@@ -535,6 +547,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             worktreePath: row.worktreePath,
             latestTurn: latestTurnByThread.get(row.threadId) ?? null,
             createdAt: row.createdAt,
+            lastInteractionAt: row.lastInteractionAt,
             updatedAt: row.updatedAt,
             deletedAt: row.deletedAt,
             messages: messagesByThread.get(row.threadId) ?? [],
