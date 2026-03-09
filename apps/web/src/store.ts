@@ -114,6 +114,7 @@ function mapProjectsFromReadModel(
       model:
         existing?.model ??
         resolveModelSlug(project.defaultModel ?? DEFAULT_MODEL_BY_PROVIDER.codex),
+      createdAt: project.createdAt,
       expanded:
         existing?.expanded ??
         (persistedExpandedProjectCwds.size > 0
@@ -264,8 +265,9 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
         })),
         error: thread.session?.lastError ?? null,
         createdAt: thread.createdAt,
+        lastInteractionAt: thread.lastInteractionAt,
         latestTurn: thread.latestTurn,
-        lastVisitedAt: existing?.lastVisitedAt ?? thread.updatedAt,
+        lastVisitedAt: existing?.lastVisitedAt ?? thread.lastInteractionAt,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
         turnDiffSummaries: thread.checkpoints.map((checkpoint) => ({

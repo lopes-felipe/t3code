@@ -12,6 +12,7 @@ import {
   useTransition,
 } from "react";
 
+import { useAppSettings } from "../appSettings";
 import { gitBranchesQueryOptions, gitQueryKeys, invalidateGitQueries } from "../lib/gitReactQuery";
 import { readNativeApi } from "../nativeApi";
 import {
@@ -72,11 +73,17 @@ export function BranchToolbarBranchSelector({
   onSetThreadBranch,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
+  const { settings } = useAppSettings();
   const queryClient = useQueryClient();
   const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
 
-  const branchesQuery = useQuery(gitBranchesQueryOptions({ cwd: branchCwd }));
+  const branchesQuery = useQuery(
+    gitBranchesQueryOptions({
+      cwd: branchCwd,
+      autoRefresh: settings.enableGitStatusAutoRefresh,
+    }),
+  );
   const branches = useMemo(
     () => dedupeRemoteBranchesWithLocalMatches(branchesQuery.data?.branches ?? []),
     [branchesQuery.data?.branches],

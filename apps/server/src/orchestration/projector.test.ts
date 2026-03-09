@@ -80,6 +80,7 @@ describe("orchestration projector", () => {
         worktreePath: null,
         latestTurn: null,
         createdAt: now,
+        lastInteractionAt: now,
         updatedAt: now,
         deletedAt: null,
         messages: [],
@@ -265,6 +266,472 @@ describe("orchestration projector", () => {
 
     expect(afterUpdate.threads[0]?.runtimeMode).toBe("approval-required");
     expect(afterUpdate.threads[0]?.updatedAt).toBe(updatedAt);
+  });
+
+  it("does not change lastInteractionAt for metadata-only thread updates", async () => {
+    const createdAt = "2026-02-23T08:00:00.000Z";
+    const interactionAt = "2026-02-23T08:00:05.000Z";
+    const renamedAt = "2026-02-23T08:00:10.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const afterCreate = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: createdAt,
+          commandId: "cmd-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "demo",
+            model: "gpt-5.3-codex",
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      ),
+    );
+
+    const afterMessage = await Effect.runPromise(
+      projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: interactionAt,
+          commandId: "cmd-message",
+          payload: {
+            threadId: "thread-1",
+            messageId: "message-1",
+            role: "user",
+            text: "hello",
+            turnId: null,
+            streaming: false,
+            createdAt: interactionAt,
+            updatedAt: interactionAt,
+          },
+        }),
+      ),
+    );
+
+    const afterRename = await Effect.runPromise(
+      projectEvent(
+        afterMessage,
+        makeEvent({
+          sequence: 3,
+          type: "thread.meta-updated",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: renamedAt,
+          commandId: "cmd-rename",
+          payload: {
+            threadId: "thread-1",
+            title: "renamed",
+            updatedAt: renamedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(afterRename.threads[0]?.lastInteractionAt).toBe(interactionAt);
+    expect(afterRename.threads[0]?.updatedAt).toBe(renamedAt);
+  });
+
+  it("does not change lastInteractionAt for lifecycle-only session status changes", async () => {
+    const createdAt = "2026-02-23T08:00:00.000Z";
+    const interactionAt = "2026-02-23T08:00:05.000Z";
+    const readyAt = "2026-02-23T08:00:10.000Z";
+    const stoppedAt = "2026-02-23T08:00:11.000Z";
+    const errorAt = "2026-02-23T08:00:12.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const events: ReadonlyArray<OrchestrationEvent> = [
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: createdAt,
+        commandId: "cmd-create",
+        payload: {
+          threadId: "thread-1",
+          projectId: "project-1",
+          title: "demo",
+          model: "gpt-5.3-codex",
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.message-sent",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: interactionAt,
+        commandId: "cmd-message",
+        payload: {
+          threadId: "thread-1",
+          messageId: "message-1",
+          role: "assistant",
+          text: "hello",
+          turnId: null,
+          streaming: false,
+          createdAt: interactionAt,
+          updatedAt: interactionAt,
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "thread.session-set",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: readyAt,
+        commandId: "cmd-ready",
+        payload: {
+          threadId: "thread-1",
+          session: {
+            threadId: "thread-1",
+            status: "ready",
+            providerName: "codex",
+            providerSessionId: "session-1",
+            providerThreadId: "provider-thread-1",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: readyAt,
+          },
+        },
+      }),
+      makeEvent({
+        sequence: 4,
+        type: "thread.session-set",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: stoppedAt,
+        commandId: "cmd-stopped",
+        payload: {
+          threadId: "thread-1",
+          session: {
+            threadId: "thread-1",
+            status: "stopped",
+            providerName: "codex",
+            providerSessionId: "session-1",
+            providerThreadId: "provider-thread-1",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: stoppedAt,
+          },
+        },
+      }),
+      makeEvent({
+        sequence: 5,
+        type: "thread.session-set",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: errorAt,
+        commandId: "cmd-error",
+        payload: {
+          threadId: "thread-1",
+          session: {
+            threadId: "thread-1",
+            status: "error",
+            providerName: "codex",
+            providerSessionId: "session-1",
+            providerThreadId: "provider-thread-1",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: "boom",
+            updatedAt: errorAt,
+          },
+        },
+      }),
+    ];
+
+    const finalState = await events.reduce<Promise<ReturnType<typeof createEmptyReadModel>>>(
+      (statePromise, event) =>
+        statePromise.then((state) => Effect.runPromise(projectEvent(state, event))),
+      Promise.resolve(model),
+    );
+
+    expect(finalState.threads[0]?.lastInteractionAt).toBe(interactionAt);
+    expect(finalState.threads[0]?.updatedAt).toBe(errorAt);
+  });
+
+  it("bumps lastInteractionAt for interaction events", async () => {
+    const createdAt = "2026-02-23T08:00:00.000Z";
+    const messageAt = "2026-02-23T08:00:01.000Z";
+    const planAt = "2026-02-23T08:00:02.000Z";
+    const activityAt = "2026-02-23T08:00:03.000Z";
+    const checkpointAt = "2026-02-23T08:00:04.000Z";
+    const revertedAt = "2026-02-23T08:00:05.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const afterCreate = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: createdAt,
+          commandId: "cmd-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "demo",
+            model: "gpt-5.3-codex",
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      ),
+    );
+    expect(afterCreate.threads[0]?.lastInteractionAt).toBe(createdAt);
+
+    const afterMessage = await Effect.runPromise(
+      projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: messageAt,
+          commandId: "cmd-message",
+          payload: {
+            threadId: "thread-1",
+            messageId: "message-1",
+            role: "assistant",
+            text: "hello",
+            turnId: "turn-1",
+            streaming: false,
+            createdAt: messageAt,
+            updatedAt: messageAt,
+          },
+        }),
+      ),
+    );
+    expect(afterMessage.threads[0]?.lastInteractionAt).toBe(messageAt);
+
+    const afterPlan = await Effect.runPromise(
+      projectEvent(
+        afterMessage,
+        makeEvent({
+          sequence: 3,
+          type: "thread.proposed-plan-upserted",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: planAt,
+          commandId: "cmd-plan",
+          payload: {
+            threadId: "thread-1",
+            proposedPlan: {
+              id: "plan-1",
+              turnId: "turn-1",
+              planMarkdown: "1. Do the thing",
+              createdAt: planAt,
+              updatedAt: planAt,
+            },
+          },
+        }),
+      ),
+    );
+    expect(afterPlan.threads[0]?.lastInteractionAt).toBe(planAt);
+
+    const afterActivity = await Effect.runPromise(
+      projectEvent(
+        afterPlan,
+        makeEvent({
+          sequence: 4,
+          type: "thread.activity-appended",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: activityAt,
+          commandId: "cmd-activity",
+          payload: {
+            threadId: "thread-1",
+            activity: {
+              id: "activity-1",
+              tone: "tool",
+              kind: "tool.started",
+              summary: "Started",
+              payload: {},
+              turnId: "turn-1",
+              createdAt: activityAt,
+            },
+          },
+        }),
+      ),
+    );
+    expect(afterActivity.threads[0]?.lastInteractionAt).toBe(activityAt);
+
+    const afterCheckpoint = await Effect.runPromise(
+      projectEvent(
+        afterActivity,
+        makeEvent({
+          sequence: 5,
+          type: "thread.turn-diff-completed",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: checkpointAt,
+          commandId: "cmd-checkpoint",
+          payload: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            checkpointTurnCount: 1,
+            checkpointRef: "refs/t3/checkpoints/thread-1/turn/1",
+            status: "ready",
+            files: [],
+            assistantMessageId: "message-1",
+            completedAt: checkpointAt,
+          },
+        }),
+      ),
+    );
+    expect(afterCheckpoint.threads[0]?.lastInteractionAt).toBe(checkpointAt);
+
+    const afterReverted = await Effect.runPromise(
+      projectEvent(
+        afterCheckpoint,
+        makeEvent({
+          sequence: 6,
+          type: "thread.reverted",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: revertedAt,
+          commandId: "cmd-revert",
+          payload: {
+            threadId: "thread-1",
+            turnCount: 0,
+          },
+        }),
+      ),
+    );
+    expect(afterReverted.threads[0]?.lastInteractionAt).toBe(revertedAt);
+  });
+
+  it("bumps lastInteractionAt for request events that represent direct user actions", async () => {
+    const createdAt = "2026-02-23T08:00:00.000Z";
+    const interruptAt = "2026-02-23T08:00:01.000Z";
+    const approvalAt = "2026-02-23T08:00:02.000Z";
+    const userInputAt = "2026-02-23T08:00:03.000Z";
+    const stopAt = "2026-02-23T08:00:04.000Z";
+    const checkpointRevertAt = "2026-02-23T08:00:05.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const events: ReadonlyArray<OrchestrationEvent> = [
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: createdAt,
+        commandId: "cmd-create",
+        payload: {
+          threadId: "thread-1",
+          projectId: "project-1",
+          title: "demo",
+          model: "gpt-5.3-codex",
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.turn-interrupt-requested",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: interruptAt,
+        commandId: "cmd-interrupt",
+        payload: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          createdAt: interruptAt,
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "thread.approval-response-requested",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: approvalAt,
+        commandId: "cmd-approval",
+        payload: {
+          threadId: "thread-1",
+          requestId: "request-1",
+          decision: "accept",
+          createdAt: approvalAt,
+        },
+      }),
+      makeEvent({
+        sequence: 4,
+        type: "thread.user-input-response-requested",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: userInputAt,
+        commandId: "cmd-user-input",
+        payload: {
+          threadId: "thread-1",
+          requestId: "request-2",
+          answers: { answer: "yes" },
+          createdAt: userInputAt,
+        },
+      }),
+      makeEvent({
+        sequence: 5,
+        type: "thread.session-stop-requested",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: stopAt,
+        commandId: "cmd-stop",
+        payload: {
+          threadId: "thread-1",
+          createdAt: stopAt,
+        },
+      }),
+      makeEvent({
+        sequence: 6,
+        type: "thread.checkpoint-revert-requested",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: checkpointRevertAt,
+        commandId: "cmd-checkpoint-revert",
+        payload: {
+          threadId: "thread-1",
+          turnCount: 1,
+          createdAt: checkpointRevertAt,
+        },
+      }),
+    ];
+
+    const finalState = await events.reduce<Promise<ReturnType<typeof createEmptyReadModel>>>(
+      (statePromise, event) =>
+        statePromise.then((state) => Effect.runPromise(projectEvent(state, event))),
+      Promise.resolve(model),
+    );
+
+    expect(finalState.threads[0]?.lastInteractionAt).toBe(checkpointRevertAt);
+    expect(finalState.threads[0]?.updatedAt).toBe(checkpointRevertAt);
   });
 
   it("marks assistant messages completed with non-streaming updates", async () => {
