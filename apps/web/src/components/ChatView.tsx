@@ -145,7 +145,6 @@ import {
   XIcon,
   CopyIcon,
   CheckIcon,
-  ZapIcon,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -205,9 +204,6 @@ import { readNativeApi } from "~/nativeApi";
 import {
   getAppModelOptions,
   resolveAppModelSelection,
-  resolveAppServiceTier,
-  shouldShowFastTierIcon,
-  type AppServiceTier,
   useAppSettings,
 } from "../appSettings";
 import {
@@ -411,7 +407,6 @@ type ComposerCommandItem =
       model: ModelSlug;
       label: string;
       description: string;
-      showFastBadge: boolean;
     };
 
 type SendPhase = "idle" | "preparing-worktree" | "sending-turn";
@@ -522,9 +517,6 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
         </Badge>
       ) : null}
       <span className="flex min-w-0 items-center gap-1.5 truncate">
-        {props.item.type === "model" && props.item.showFastBadge ? (
-          <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
-        ) : null}
         <span className="truncate">{props.item.label}</span>
       </span>
       <span className="truncate text-muted-foreground/70 text-xs">{props.item.description}</span>
@@ -786,8 +778,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       activeThread.messages.length > 0 ||
       activeThread.session !== null),
   );
-  const selectedServiceTierSetting = settings.codexServiceTier;
-  const selectedServiceTier = resolveAppServiceTier(selectedServiceTierSetting);
   const lockedProvider: ProviderKind | null = hasThreadStarted
     ? (sessionProvider ?? selectedProviderByThreadId ?? null)
     : null;
@@ -1260,10 +1250,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
         model: slug,
         label: name,
         description: `${providerLabel} · ${slug}`,
-        showFastBadge:
-          provider === "codex" && shouldShowFastTierIcon(slug, selectedServiceTierSetting),
       }));
-  }, [composerTrigger, searchableModelOptions, selectedServiceTierSetting, workspaceEntries]);
+  }, [composerTrigger, searchableModelOptions, workspaceEntries]);
   const composerMenuOpen = Boolean(composerTrigger);
   const activeComposerMenuItem = useMemo(
     () =>
@@ -1791,6 +1779,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         "button, summary, [role='button'], [data-scroll-anchor-target]",
       );
       if (!trigger || !scrollContainer.contains(trigger)) return;
+      if (trigger.closest("[data-scroll-anchor-ignore]")) return;
 
       pendingInteractionAnchorRef.current = {
         element: trigger,
@@ -2670,7 +2659,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
           attachments: turnAttachments,
         },
         model: selectedModel || undefined,
-        serviceTier: selectedServiceTier,
         ...(selectedModelOptionsForDispatch
           ? { modelOptions: selectedModelOptionsForDispatch }
           : {}),
@@ -3705,7 +3693,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     model={selectedModelForPickerWithCustomFallback}
                     lockedProvider={lockedProvider}
                     modelOptionsByProvider={modelOptionsByProvider}
-                    serviceTierSetting={selectedServiceTierSetting}
                     onProviderModelChange={onProviderModelSelect}
                   />
 
@@ -4826,7 +4813,12 @@ const ProposedPlanCard = memo(function ProposedPlanCard({
         </div>
         {canCollapse ? (
           <div className="mt-4 flex justify-center">
-            <Button size="sm" variant="outline" onClick={() => setExpanded((value) => !value)}>
+            <Button
+              size="sm"
+              variant="outline"
+              data-scroll-anchor-ignore
+              onClick={() => setExpanded((value) => !value)}
+            >
               {expanded ? "Collapse plan" : "Expand plan"}
             </Button>
           </div>
@@ -5548,7 +5540,6 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   model: ModelSlug;
   lockedProvider: ProviderKind | null;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
-  serviceTierSetting: AppServiceTier;
   disabled?: boolean;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
 }) {
@@ -5581,9 +5572,6 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       >
         <span className="flex min-w-0 items-center gap-2">
           <ProviderIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground/70" />
-          {props.provider === "codex" && shouldShowFastTierIcon(props.model, props.serviceTierSetting) ? (
-            <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
-          ) : null}
           <span className="truncate">{selectedModelLabel}</span>
           <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
         </span>
@@ -5626,10 +5614,6 @@ const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                         value={modelOption.slug}
                         onClick={() => setIsMenuOpen(false)}
                       >
-                        {option.value === "codex" &&
-                        shouldShowFastTierIcon(modelOption.slug, props.serviceTierSetting) ? (
-                          <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
-                        ) : null}
                         {modelOption.name}
                       </MenuRadioItem>
                     ))}
