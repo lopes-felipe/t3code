@@ -4,10 +4,32 @@ import {
   getAppModelOptions,
   getSlashModelOptions,
   normalizeCustomModelSlugs,
+  parsePersistedAppSettings,
   resolveAppServiceTier,
-  shouldShowFastTierIcon,
   resolveAppModelSelection,
+  shouldShowFastTierIcon,
 } from "./appSettings";
+
+describe("parsePersistedAppSettings", () => {
+  it("defaults git status auto-refresh to true", () => {
+    expect(parsePersistedAppSettings(null).enableGitStatusAutoRefresh).toBe(true);
+  });
+
+  it("decodes older persisted settings payloads with git status auto-refresh enabled", () => {
+    expect(
+      parsePersistedAppSettings(
+        JSON.stringify({
+          codexBinaryPath: "",
+          codexHomePath: "",
+          confirmThreadDelete: true,
+          enableAssistantStreaming: false,
+          codexServiceTier: "auto",
+          customCodexModels: [],
+        }),
+      ).enableGitStatusAutoRefresh,
+    ).toBe(true);
+  });
+});
 
 describe("normalizeCustomModelSlugs", () => {
   it("normalizes aliases, removes built-ins, and deduplicates values", () => {

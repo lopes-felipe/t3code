@@ -20,11 +20,23 @@ export const gitMutationKeys = {
   pull: (cwd: string | null) => ["git", "mutation", "pull", cwd] as const,
 };
 
+interface GitAutoRefreshQueryOptionsInput {
+  cwd: string | null;
+  autoRefresh?: boolean;
+  staleTimeMs?: number;
+  refetchIntervalMs?: number;
+}
+
 export function invalidateGitQueries(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
 }
 
-export function gitStatusQueryOptions(cwd: string | null) {
+export function gitStatusQueryOptions({
+  cwd,
+  autoRefresh = true,
+  staleTimeMs,
+  refetchIntervalMs,
+}: GitAutoRefreshQueryOptionsInput) {
   return queryOptions({
     queryKey: gitQueryKeys.status(cwd),
     queryFn: async () => {
@@ -33,14 +45,19 @@ export function gitStatusQueryOptions(cwd: string | null) {
       return api.git.status({ cwd });
     },
     enabled: cwd !== null,
-    staleTime: GIT_STATUS_STALE_TIME_MS,
-    refetchOnWindowFocus: "always",
-    refetchOnReconnect: "always",
-    refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
+    staleTime: staleTimeMs ?? GIT_STATUS_STALE_TIME_MS,
+    refetchOnWindowFocus: autoRefresh ? "always" : false,
+    refetchOnReconnect: autoRefresh ? "always" : false,
+    refetchInterval: autoRefresh ? (refetchIntervalMs ?? GIT_STATUS_REFETCH_INTERVAL_MS) : false,
   });
 }
 
-export function gitBranchesQueryOptions(cwd: string | null) {
+export function gitBranchesQueryOptions({
+  cwd,
+  autoRefresh = true,
+  staleTimeMs,
+  refetchIntervalMs,
+}: GitAutoRefreshQueryOptionsInput) {
   return queryOptions({
     queryKey: gitQueryKeys.branches(cwd),
     queryFn: async () => {
@@ -49,10 +66,10 @@ export function gitBranchesQueryOptions(cwd: string | null) {
       return api.git.listBranches({ cwd });
     },
     enabled: cwd !== null,
-    staleTime: GIT_BRANCHES_STALE_TIME_MS,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
-    refetchInterval: GIT_BRANCHES_REFETCH_INTERVAL_MS,
+    staleTime: staleTimeMs ?? GIT_BRANCHES_STALE_TIME_MS,
+    refetchOnWindowFocus: autoRefresh,
+    refetchOnReconnect: autoRefresh,
+    refetchInterval: autoRefresh ? (refetchIntervalMs ?? GIT_BRANCHES_REFETCH_INTERVAL_MS) : false,
   });
 }
 

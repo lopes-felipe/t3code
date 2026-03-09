@@ -3,6 +3,7 @@ import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
 import { GitHubIcon } from "./Icons";
+import { useAppSettings } from "../appSettings";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
@@ -139,6 +140,7 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
 }
 
 export default function GitActionsControl({ gitCwd, activeThreadId }: GitActionsControlProps) {
+  const { settings } = useAppSettings();
   const threadToastData = useMemo(
     () => (activeThreadId ? { threadId: activeThreadId } : undefined),
     [activeThreadId],
@@ -149,9 +151,19 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
   const [pendingDefaultBranchAction, setPendingDefaultBranchAction] =
     useState<PendingDefaultBranchAction | null>(null);
 
-  const { data: gitStatus = null, error: gitStatusError } = useQuery(gitStatusQueryOptions(gitCwd));
+  const { data: gitStatus = null, error: gitStatusError } = useQuery(
+    gitStatusQueryOptions({
+      cwd: gitCwd,
+      autoRefresh: settings.enableGitStatusAutoRefresh,
+    }),
+  );
 
-  const { data: branchList = null } = useQuery(gitBranchesQueryOptions(gitCwd));
+  const { data: branchList = null } = useQuery(
+    gitBranchesQueryOptions({
+      cwd: gitCwd,
+      autoRefresh: settings.enableGitStatusAutoRefresh,
+    }),
+  );
   // Default to true while loading so we don't flash init controls.
   const isRepo = branchList?.isRepo ?? true;
   const currentBranch = branchList?.branches.find((branch) => branch.current)?.name ?? null;

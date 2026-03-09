@@ -41,6 +41,9 @@ const AppSettingsSchema = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(
     Schema.withConstructorDefault(() => Option.some(false)),
   ),
+  enableGitStatusAutoRefresh: Schema.Boolean.pipe(
+    Schema.withConstructorDefault(() => Option.some(true)),
+  ),
   codexServiceTier: AppServiceTierSchema.pipe(Schema.withConstructorDefault(() => Option.some("auto"))),
   customCodexModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
@@ -205,7 +208,7 @@ function emitChange(): void {
   }
 }
 
-function parsePersistedSettings(value: string | null): AppSettings {
+export function parsePersistedAppSettings(value: string | null): AppSettings {
   if (!value) {
     return DEFAULT_APP_SETTINGS;
   }
@@ -228,7 +231,7 @@ export function getAppSettingsSnapshot(): AppSettings {
   }
 
   cachedRawSettings = raw;
-  cachedSnapshot = parsePersistedSettings(raw);
+  cachedSnapshot = parsePersistedAppSettings(raw);
   return cachedSnapshot;
 }
 
