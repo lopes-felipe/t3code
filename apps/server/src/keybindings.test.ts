@@ -105,6 +105,64 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }),
   );
 
+  it.effect("compiles recent thread switching shortcuts", () =>
+    Effect.sync(() => {
+      assert.deepEqual(
+        compileResolvedKeybindingRule({
+          key: "ctrl+tab",
+          command: "thread.switchRecentNext",
+        }),
+        {
+          command: "thread.switchRecentNext",
+          shortcut: {
+            key: "tab",
+            metaKey: false,
+            ctrlKey: true,
+            shiftKey: false,
+            altKey: false,
+            modKey: false,
+          },
+        },
+      );
+
+      assert.deepEqual(
+        compileResolvedKeybindingRule({
+          key: "ctrl+shift+tab",
+          command: "thread.switchRecentPrevious",
+        }),
+        {
+          command: "thread.switchRecentPrevious",
+          shortcut: {
+            key: "tab",
+            metaKey: false,
+            ctrlKey: true,
+            shiftKey: true,
+            altKey: false,
+            modKey: false,
+          },
+        },
+      );
+    }),
+  );
+
+  it.effect("includes recent thread switching defaults", () =>
+    Effect.sync(() => {
+      assert.isTrue(
+        DEFAULT_KEYBINDINGS.some(
+          (entry) =>
+            entry.key === "ctrl+tab" && entry.command === "thread.switchRecentNext",
+        ),
+      );
+      assert.isTrue(
+        DEFAULT_KEYBINDINGS.some(
+          (entry) =>
+            entry.key === "ctrl+shift+tab" &&
+            entry.command === "thread.switchRecentPrevious",
+        ),
+      );
+    }),
+  );
+
   it.effect("encodes resolved plus-key shortcuts", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(ResolvedKeybindingFromConfig)({
