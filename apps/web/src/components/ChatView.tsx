@@ -116,6 +116,7 @@ import {
   summarizeTurnDiffStats,
   type TurnDiffTreeNode,
 } from "../lib/turnDiffTree";
+import { isTerminalFocused } from "../lib/terminalFocus";
 import BranchToolbar from "./BranchToolbar";
 import GitActionsControl from "./GitActionsControl";
 import {
@@ -2204,13 +2205,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [activeThreadId, focusComposer, terminalState.terminalOpen]);
 
   useEffect(() => {
-    const isTerminalFocused = (): boolean => {
-      const activeElement = document.activeElement;
-      if (!(activeElement instanceof HTMLElement)) return false;
-      if (activeElement.classList.contains("xterm-helper-textarea")) return true;
-      return activeElement.closest(".thread-terminal-drawer .xterm") !== null;
-    };
-
     const handler = (event: globalThis.KeyboardEvent) => {
       if (!activeThreadId || event.defaultPrevented) return;
       const shortcutContext = {

@@ -12,11 +12,14 @@ import {
   isChatNewLocalShortcut,
   isDiffToggleShortcut,
   isOpenFavoriteEditorShortcut,
+  isThreadSwitchRecentNextShortcut,
+  isThreadSwitchRecentPreviousShortcut,
   isTerminalClearShortcut,
   isTerminalCloseShortcut,
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalToggleShortcut,
+  resolveShortcutBinding,
   resolveShortcutCommand,
   shortcutLabelForCommand,
   terminalNavigationShortcutData,
@@ -100,6 +103,11 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
+  { shortcut: { ...modShortcut("tab"), modKey: false, ctrlKey: true }, command: "thread.switchRecentNext" },
+  {
+    shortcut: { ...modShortcut("tab"), modKey: false, ctrlKey: true, shiftKey: true },
+    command: "thread.switchRecentPrevious",
+  },
 ]);
 
 describe("isTerminalToggleShortcut", () => {
@@ -258,6 +266,23 @@ describe("chat/editor shortcuts", () => {
     );
   });
 
+  it("matches recent thread switching shortcuts", () => {
+    assert.isTrue(
+      isThreadSwitchRecentNextShortcut(
+        event({ key: "Tab", ctrlKey: true }),
+        DEFAULT_BINDINGS,
+        { platform: "Linux" },
+      ),
+    );
+    assert.isTrue(
+      isThreadSwitchRecentPreviousShortcut(
+        event({ key: "Tab", ctrlKey: true, shiftKey: true }),
+        DEFAULT_BINDINGS,
+        { platform: "Linux" },
+      ),
+    );
+  });
+
   it("matches chat.newLocal shortcut", () => {
     assert.isTrue(
       isChatNewLocalShortcut(event({ key: "n", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
@@ -371,6 +396,96 @@ describe("resolveShortcutCommand", () => {
         platform: "Linux",
       }),
       "script.setup.run",
+    );
+  });
+
+  it("returns recent thread switching commands", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "Tab", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+      }),
+      "thread.switchRecentNext",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "Tab", ctrlKey: true, shiftKey: true }),
+        DEFAULT_BINDINGS,
+        {
+          platform: "Linux",
+        },
+      ),
+      "thread.switchRecentPrevious",
+    );
+  });
+
+  it("lets the last matching recent-thread rule win", () => {
+    const keybindings = compile([
+      {
+        shortcut: { ...modShortcut("tab"), modKey: false, ctrlKey: true },
+        command: "thread.switchRecentNext",
+      },
+      {
+        shortcut: { ...modShortcut("tab"), modKey: false, ctrlKey: true },
+        command: "chat.new",
+      },
+    ]);
+
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "Tab", ctrlKey: true }), keybindings, {
+        platform: "Linux",
+      }),
+      "chat.new",
+    );
+  });
+
+  it("returns the matched binding for recent-thread commands", () => {
+    const binding = resolveShortcutBinding(
+      event({ key: "Tab", ctrlKey: true, shiftKey: true }),
+      DEFAULT_BINDINGS,
+      { platform: "Linux" },
+    );
+
+    assert.deepEqual(binding, {
+      command: "thread.switchRecentPrevious",
+      shortcut: {
+        key: "tab",
+        metaKey: false,
+        ctrlKey: true,
+        shiftKey: true,
+        altKey: false,
+        modKey: false,
+      },
+    });
+  });
+
+  it("respects when clauses for recent-thread commands", () => {
+    const keybindings = compile([
+      {
+        shortcut: { ...modShortcut("tab"), modKey: false, ctrlKey: true },
+        command: "thread.switchRecentNext",
+        whenAst: whenIdentifier("terminalFocus"),
+      },
+    ]);
+
+    assert.isTrue(
+      isThreadSwitchRecentNextShortcut(
+        event({ key: "Tab", ctrlKey: true }),
+        keybindings,
+        {
+          platform: "Linux",
+          context: { terminalFocus: true },
+        },
+      ),
+    );
+    assert.isFalse(
+      isThreadSwitchRecentNextShortcut(
+        event({ key: "Tab", ctrlKey: true }),
+        keybindings,
+        {
+          platform: "Linux",
+          context: { terminalFocus: false },
+        },
+      ),
     );
   });
 });
