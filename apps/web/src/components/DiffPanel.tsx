@@ -176,7 +176,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
   );
   const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd;
-  const gitBranchesQuery = useQuery(gitBranchesQueryOptions(activeCwd ?? null));
+  const gitBranchesQuery = useQuery(gitBranchesQueryOptions({ cwd: activeCwd ?? null }));
   const isGitRepo = gitBranchesQuery.data?.isRepo ?? true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);

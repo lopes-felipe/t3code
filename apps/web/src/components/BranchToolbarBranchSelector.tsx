@@ -76,7 +76,7 @@ export function BranchToolbarBranchSelector({
   const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
 
-  const branchesQuery = useQuery(gitBranchesQueryOptions(branchCwd));
+  const branchesQuery = useQuery(gitBranchesQueryOptions({ cwd: branchCwd }));
   const branches = useMemo(
     () => dedupeRemoteBranchesWithLocalMatches(branchesQuery.data?.branches ?? []),
     [branchesQuery.data?.branches],
