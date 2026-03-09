@@ -30,6 +30,7 @@ export const ProjectionThread = Schema.Struct({
   worktreePath: Schema.NullOr(Schema.String),
   latestTurnId: Schema.NullOr(TurnId),
   createdAt: IsoDateTime,
+  lastInteractionAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
 });
@@ -71,7 +72,7 @@ export interface ProjectionThreadRepositoryShape {
   /**
    * List projected threads for a project.
    *
-   * Returned in deterministic creation order.
+   * Returned in deterministic activity order.
    */
   readonly listByProjectId: (
     input: ListProjectionThreadsByProjectInput,

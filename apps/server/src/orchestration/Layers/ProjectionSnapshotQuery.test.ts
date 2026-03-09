@@ -68,6 +68,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           worktree_path,
           latest_turn_id,
           created_at,
+          last_interaction_at,
           updated_at,
           deleted_at
         )
@@ -80,6 +81,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           NULL,
           'turn-1',
           '2026-02-24T00:00:02.000Z',
+          '2026-02-24T00:00:08.500Z',
           '2026-02-24T00:00:03.000Z',
           NULL
         )
@@ -247,6 +249,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             assistantMessageId: asMessageId("message-1"),
           },
           createdAt: "2026-02-24T00:00:02.000Z",
+          lastInteractionAt: "2026-02-24T00:00:08.500Z",
           updatedAt: "2026-02-24T00:00:03.000Z",
           deletedAt: null,
           messages: [
@@ -294,6 +297,193 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
         },
       ]);
+    }),
+  );
+
+  it.effect("orders threads by lastInteractionAt and projects by hottest child activity", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES
+          (
+            'project-empty',
+            'Empty',
+            '/tmp/project-empty',
+            'gpt-5-codex',
+            '[]',
+            '2026-02-24T00:00:03.000Z',
+            '2026-02-24T00:00:03.000Z',
+            NULL
+          ),
+          (
+            'project-cold',
+            'Cold',
+            '/tmp/project-cold',
+            'gpt-5-codex',
+            '[]',
+            '2026-02-24T00:00:01.000Z',
+            '2026-02-24T00:00:01.000Z',
+            NULL
+          ),
+          (
+            'project-hot',
+            'Hot',
+            '/tmp/project-hot',
+            'gpt-5-codex',
+            '[]',
+            '2026-02-24T00:00:02.000Z',
+            '2026-02-24T00:00:02.000Z',
+            NULL
+          )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          created_at,
+          last_interaction_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES
+          (
+            'thread-hot-older',
+            'project-hot',
+            'Hot older',
+            'gpt-5-codex',
+            'full-access',
+            'default',
+            NULL,
+            NULL,
+            NULL,
+            '2026-02-24T00:00:00.000Z',
+            '2026-02-24T00:00:05.000Z',
+            '2026-02-24T00:00:05.000Z',
+            NULL
+          ),
+          (
+            'thread-hot-newer',
+            'project-hot',
+            'Hot newer',
+            'gpt-5-codex',
+            'full-access',
+            'default',
+            NULL,
+            NULL,
+            NULL,
+            '2026-02-24T00:00:04.000Z',
+            '2026-02-24T00:00:05.000Z',
+            '2026-02-24T00:00:05.000Z',
+            NULL
+          ),
+          (
+            'thread-cold',
+            'project-cold',
+            'Cold thread',
+            'gpt-5-codex',
+            'full-access',
+            'default',
+            NULL,
+            NULL,
+            NULL,
+            '2026-02-24T00:00:06.000Z',
+            '2026-02-24T00:00:04.000Z',
+            '2026-02-24T00:00:04.000Z',
+            NULL
+          ),
+          (
+            'thread-deleted',
+            'project-cold',
+            'Deleted thread',
+            'gpt-5-codex',
+            'full-access',
+            'default',
+            NULL,
+            NULL,
+            NULL,
+            '2026-02-24T00:00:07.000Z',
+            '2026-02-24T00:00:08.000Z',
+            '2026-02-24T00:00:08.000Z',
+            '2026-02-24T00:00:08.000Z'
+          )
+      `;
+
+      let sequence = 10;
+      for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
+        yield* sql`
+          INSERT INTO projection_state (
+            projector,
+            last_applied_sequence,
+            updated_at
+          )
+          VALUES (
+            ${projector},
+            ${sequence},
+            '2026-02-24T00:00:09.000Z'
+          )
+        `;
+        sequence += 1;
+      }
+
+      const snapshot = yield* snapshotQuery.getSnapshot();
+
+      assert.deepEqual(
+        snapshot.threads.map((thread) => ({
+          id: thread.id,
+          lastInteractionAt: thread.lastInteractionAt,
+        })),
+        [
+          {
+            id: ThreadId.makeUnsafe("thread-deleted"),
+            lastInteractionAt: "2026-02-24T00:00:08.000Z",
+          },
+          {
+            id: ThreadId.makeUnsafe("thread-hot-newer"),
+            lastInteractionAt: "2026-02-24T00:00:05.000Z",
+          },
+          {
+            id: ThreadId.makeUnsafe("thread-hot-older"),
+            lastInteractionAt: "2026-02-24T00:00:05.000Z",
+          },
+          {
+            id: ThreadId.makeUnsafe("thread-cold"),
+            lastInteractionAt: "2026-02-24T00:00:04.000Z",
+          },
+        ],
+      );
+
+      assert.deepEqual(
+        snapshot.projects.map((project) => project.id),
+        [
+          ProjectId.makeUnsafe("project-hot"),
+          ProjectId.makeUnsafe("project-cold"),
+          ProjectId.makeUnsafe("project-empty"),
+        ],
+      );
     }),
   );
 });

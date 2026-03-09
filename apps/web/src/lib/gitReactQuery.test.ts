@@ -46,6 +46,7 @@ describe("gitStatusQueryOptions", () => {
   it("disables interval, focus, and reconnect refreshes when auto-refresh is off", () => {
     const options = gitStatusQueryOptions({ cwd: "/repo/a", autoRefresh: false });
 
+    expect(options.staleTime).toBe(Infinity);
     expect(options.refetchInterval).toBe(false);
     expect(options.refetchOnWindowFocus).toBe(false);
     expect(options.refetchOnReconnect).toBe(false);
@@ -78,6 +79,7 @@ describe("gitBranchesQueryOptions", () => {
   it("disables branch interval, focus, and reconnect refreshes when auto-refresh is off", () => {
     const options = gitBranchesQueryOptions({ cwd: "/repo/a", autoRefresh: false });
 
+    expect(options.staleTime).toBe(Infinity);
     expect(options.refetchInterval).toBe(false);
     expect(options.refetchOnWindowFocus).toBe(false);
     expect(options.refetchOnReconnect).toBe(false);

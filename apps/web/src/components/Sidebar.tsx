@@ -26,6 +26,11 @@ import { useAppSettings } from "../appSettings";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL } from "../branding";
 import { newCommandId, newProjectId, newThreadId } from "../lib/utils";
+import {
+  getMostRecentThreadForProject,
+  sortProjectsByActivity,
+  sortThreadsByActivity,
+} from "../lib/threadOrdering";
 import { useStore } from "../store";
 import { isChatNewLocalShortcut, isChatNewShortcut, shortcutLabelForCommand } from "../keybindings";
 import { type Thread } from "../types";
@@ -312,6 +317,8 @@ export default function Sidebar() {
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
+  const orderedProjects = useMemo(() => sortProjectsByActivity(projects, threads), [projects, threads]);
+  const mostRecentProjectId = orderedProjects[0]?.id ?? null;
   const pendingApprovalByThreadId = useMemo(() => {
     const map = new Map<ThreadId, boolean>();
     for (const thread of threads) {
@@ -472,13 +479,7 @@ export default function Sidebar() {
 
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
-      const latestThread = threads
-        .filter((thread) => thread.projectId === projectId)
-        .toSorted((a, b) => {
-          const byDate = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-          if (byDate !== 0) return byDate;
-          return b.id.localeCompare(a.id);
-        })[0];
+      const latestThread = getMostRecentThreadForProject(projectId, threads);
       if (!latestThread) return;
 
       void navigate({
@@ -702,7 +703,8 @@ export default function Sidebar() {
       }
 
       const shouldNavigateToFallback = routeThreadId === threadId;
-      const fallbackThreadId = threads.find((entry) => entry.id !== threadId)?.id ?? null;
+      const fallbackThreadId =
+        sortThreadsByActivity(threads.filter((entry) => entry.id !== threadId))[0]?.id ?? null;
       await api.orchestration.dispatchCommand({
         type: "thread.delete",
         commandId: newCommandId(),
@@ -827,8 +829,7 @@ export default function Sidebar() {
         : undefined;
       const activeDraftThread = routeThreadId ? getDraftThread(routeThreadId) : null;
       if (isChatNewLocalShortcut(event, keybindings)) {
-        const projectId =
-          activeThread?.projectId ?? activeDraftThread?.projectId ?? projects[0]?.id;
+        const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? mostRecentProjectId;
         if (!projectId) return;
         event.preventDefault();
         void handleNewThread(projectId);
@@ -836,7 +837,7 @@ export default function Sidebar() {
       }
 
       if (!isChatNewShortcut(event, keybindings)) return;
-      const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? projects[0]?.id;
+      const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? mostRecentProjectId;
       if (!projectId) return;
       event.preventDefault();
       void handleNewThread(projectId, {
@@ -850,7 +851,7 @@ export default function Sidebar() {
     return () => {
       window.removeEventListener("keydown", onWindowKeyDown);
     };
-  }, [getDraftThread, handleNewThread, keybindings, projects, routeThreadId, threads]);
+  }, [getDraftThread, handleNewThread, keybindings, mostRecentProjectId, routeThreadId, threads]);
 
   useEffect(() => {
     if (!isElectron) return;
@@ -1158,14 +1159,10 @@ export default function Sidebar() {
           )}
 
           <SidebarMenu>
-            {projects.map((project) => {
-              const projectThreads = threads
-                .filter((thread) => thread.projectId === project.id)
-                .toSorted((a, b) => {
-                  const byDate = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-                  if (byDate !== 0) return byDate;
-                  return b.id.localeCompare(a.id);
-                });
+            {orderedProjects.map((project) => {
+              const projectThreads = sortThreadsByActivity(
+                threads.filter((thread) => thread.projectId === project.id),
+              );
               const isThreadListExpanded = expandedThreadListsByProject.has(project.id);
               const hasHiddenThreads = projectThreads.length > THREAD_PREVIEW_LIMIT;
               const visibleThreads =
@@ -1371,10 +1368,10 @@ export default function Sidebar() {
                                   )}
                                   <span
                                     className={`text-[10px] ${
-                                      isActive ? "text-foreground/65" : "text-muted-foreground/40"
-                                    }`}
+                                    isActive ? "text-foreground/65" : "text-muted-foreground/40"
+                                  }`}
                                   >
-                                    {formatRelativeTime(thread.createdAt)}
+                                    {formatRelativeTime(thread.lastInteractionAt)}
                                   </span>
                                 </div>
                               </SidebarMenuSubButton>
@@ -1418,7 +1415,7 @@ export default function Sidebar() {
             })}
           </SidebarMenu>
 
-          {projects.length === 0 && !addingProject && (
+          {orderedProjects.length === 0 && !addingProject && (
             <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
               No projects yet
             </div>

@@ -27,6 +27,7 @@ export default Effect.gen(function* () {
       worktree_path TEXT,
       latest_turn_id TEXT,
       created_at TEXT NOT NULL,
+      last_interaction_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deleted_at TEXT
     )
@@ -119,6 +120,11 @@ export default Effect.gen(function* () {
   yield* sql`
     CREATE INDEX IF NOT EXISTS idx_projection_threads_project_id
     ON projection_threads(project_id)
+  `;
+
+  yield* sql`
+    CREATE INDEX IF NOT EXISTS idx_projection_threads_project_last_interaction
+    ON projection_threads(project_id, last_interaction_at)
   `;
 
   yield* sql`
