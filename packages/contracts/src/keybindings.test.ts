@@ -46,6 +46,18 @@ it.effect("parses keybinding rules", () =>
       command: "chat.newLocal",
     });
     assert.strictEqual(parsedLocal.command, "chat.newLocal");
+
+    const parsedThreadSwitchNext = yield* decode(KeybindingRule, {
+      key: "ctrl+tab",
+      command: "thread.switchRecentNext",
+    });
+    assert.strictEqual(parsedThreadSwitchNext.command, "thread.switchRecentNext");
+
+    const parsedThreadSwitchPrevious = yield* decode(KeybindingRule, {
+      key: "ctrl+shift+tab",
+      command: "thread.switchRecentPrevious",
+    });
+    assert.strictEqual(parsedThreadSwitchPrevious.command, "thread.switchRecentPrevious");
   }),
 );
 
