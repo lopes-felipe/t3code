@@ -1,5 +1,6 @@
 import {
   type KeybindingCommand,
+  type ResolvedKeybindingRule,
   type KeybindingShortcut,
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
@@ -100,11 +101,11 @@ function matchesCommandShortcut(
   return resolveShortcutCommand(event, keybindings, options) === command;
 }
 
-export function resolveShortcutCommand(
+export function resolveShortcutBinding(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,
   options?: ShortcutMatchOptions,
-): string | null {
+): ResolvedKeybindingRule | null {
   const platform = resolvePlatform(options);
   const context = resolveContext(options);
 
@@ -113,9 +114,18 @@ export function resolveShortcutCommand(
     if (!binding) continue;
     if (!matchesWhenClause(binding.whenAst, context)) continue;
     if (!matchesShortcut(event, binding.shortcut, platform)) continue;
-    return binding.command;
+    return binding;
   }
+
   return null;
+}
+
+export function resolveShortcutCommand(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): string | null {
+  return resolveShortcutBinding(event, keybindings, options)?.command ?? null;
 }
 
 function formatShortcutKeyLabel(key: string): string {
@@ -228,6 +238,22 @@ export function isOpenFavoriteEditorShortcut(
   options?: ShortcutMatchOptions,
 ): boolean {
   return matchesCommandShortcut(event, keybindings, "editor.openFavorite", options);
+}
+
+export function isThreadSwitchRecentNextShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "thread.switchRecentNext", options);
+}
+
+export function isThreadSwitchRecentPreviousShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "thread.switchRecentPrevious", options);
 }
 
 export function isTerminalClearShortcut(

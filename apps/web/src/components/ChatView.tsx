@@ -85,6 +85,13 @@ import {
 import { basenameOfPath } from "../vscode-icons";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
+<<<<<<< HEAD
+||||||| parent of 0f007261 (Add MRU thread switching with Ctrl+Tab keybindings (#3))
+import {
+  buildTurnDiffTree,
+  summarizeTurnDiffStats,
+  type TurnDiffTreeNode,
+} from "../lib/turnDiffTree";
 import BranchToolbar from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";

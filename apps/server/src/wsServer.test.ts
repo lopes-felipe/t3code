@@ -832,6 +832,20 @@ describe("WebSocket Server", () => {
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
     });
+    expect(
+      (response.result as { keybindings: ResolvedKeybindingsConfig }).keybindings.some(
+        (entry) =>
+          entry.command === "thread.switchRecentNext" && entry.shortcut.key === "tab",
+      ),
+    ).toBe(true);
+    expect(
+      (response.result as { keybindings: ResolvedKeybindingsConfig }).keybindings.some(
+        (entry) =>
+          entry.command === "thread.switchRecentPrevious" &&
+          entry.shortcut.key === "tab" &&
+          entry.shortcut.shiftKey,
+      ),
+    ).toBe(true);
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
   });
 

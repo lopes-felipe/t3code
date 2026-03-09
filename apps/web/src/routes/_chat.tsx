@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
+import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
+import ThreadRecencyController from "../components/ThreadRecencyController";
 import ThreadSidebar from "../components/Sidebar";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -119,7 +121,10 @@ function ChatRouteLayout() {
       >
         <ThreadSidebar />
       </Sidebar>
-      <Outlet />
+      <DiffWorkerPoolProvider>
+        <ThreadRecencyController />
+        <Outlet />
+      </DiffWorkerPoolProvider>
     </SidebarProvider>
   );
 }
