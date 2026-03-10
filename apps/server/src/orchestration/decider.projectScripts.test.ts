@@ -358,4 +358,210 @@ describe("decider project scripts", () => {
       },
     });
   });
+
+  it("emits thread.archived from thread.archive using the command createdAt", async () => {
+    const createdAt = "2026-03-10T08:00:00.000Z";
+    const initial = createEmptyReadModel(createdAt);
+    const withProject = await Effect.runPromise(
+      projectEvent(initial, {
+        sequence: 1,
+        eventId: asEventId("evt-project-create-archive"),
+        aggregateKind: "project",
+        aggregateId: asProjectId("project-1"),
+        type: "project.created",
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-project-create-archive"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-project-create-archive"),
+        metadata: {},
+        payload: {
+          projectId: asProjectId("project-1"),
+          title: "Project",
+          workspaceRoot: "/tmp/project",
+          defaultModel: null,
+          scripts: [],
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+    );
+    const readModel = await Effect.runPromise(
+      projectEvent(withProject, {
+        sequence: 2,
+        eventId: asEventId("evt-thread-create-archive"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-1"),
+        type: "thread.created",
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-thread-create-archive"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-thread-create-archive"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          projectId: asProjectId("project-1"),
+          title: "Thread",
+          model: "gpt-5-codex",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("cmd-thread-archive"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          createdAt,
+        },
+        readModel,
+      }),
+    );
+
+    const singleResult = Array.isArray(result) ? null : result;
+    if (singleResult === null) {
+      throw new Error("Expected a single thread.archived event.");
+    }
+    expect(singleResult).toMatchObject({
+      occurredAt: createdAt,
+      type: "thread.archived",
+      payload: {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        archivedAt: createdAt,
+      },
+    });
+  });
+
+  it("emits thread.unarchived from thread.unarchive and rejects duplicate archive state changes", async () => {
+    const createdAt = "2026-03-10T08:30:00.000Z";
+    const archivedAt = "2026-03-10T08:35:00.000Z";
+    const unarchivedAt = "2026-03-10T08:40:00.000Z";
+    const initial = createEmptyReadModel(createdAt);
+    const withProject = await Effect.runPromise(
+      projectEvent(initial, {
+        sequence: 1,
+        eventId: asEventId("evt-project-create-unarchive"),
+        aggregateKind: "project",
+        aggregateId: asProjectId("project-1"),
+        type: "project.created",
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-project-create-unarchive"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-project-create-unarchive"),
+        metadata: {},
+        payload: {
+          projectId: asProjectId("project-1"),
+          title: "Project",
+          workspaceRoot: "/tmp/project",
+          defaultModel: null,
+          scripts: [],
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+    );
+    const unarchivedReadModel = await Effect.runPromise(
+      projectEvent(withProject, {
+        sequence: 2,
+        eventId: asEventId("evt-thread-create-unarchive"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-1"),
+        type: "thread.created",
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-thread-create-unarchive"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-thread-create-unarchive"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          projectId: asProjectId("project-1"),
+          title: "Thread",
+          model: "gpt-5-codex",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+    );
+    const archivedReadModel = await Effect.runPromise(
+      projectEvent(unarchivedReadModel, {
+        sequence: 3,
+        eventId: asEventId("evt-thread-archived"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-1"),
+        type: "thread.archived",
+        occurredAt: archivedAt,
+        commandId: CommandId.makeUnsafe("cmd-thread-archive"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-thread-archive"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          archivedAt,
+        },
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.unarchive",
+          commandId: CommandId.makeUnsafe("cmd-thread-unarchive"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          createdAt: unarchivedAt,
+        },
+        readModel: archivedReadModel,
+      }),
+    );
+
+    const singleResult = Array.isArray(result) ? null : result;
+    if (singleResult === null) {
+      throw new Error("Expected a single thread.unarchived event.");
+    }
+    expect(singleResult).toMatchObject({
+      occurredAt: unarchivedAt,
+      type: "thread.unarchived",
+      payload: {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        unarchivedAt,
+      },
+    });
+
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "thread.archive",
+            commandId: CommandId.makeUnsafe("cmd-thread-archive-duplicate"),
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            createdAt: unarchivedAt,
+          },
+          readModel: archivedReadModel,
+        }),
+      ),
+    ).rejects.toThrow("already archived");
+
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "thread.unarchive",
+            commandId: CommandId.makeUnsafe("cmd-thread-unarchive-invalid"),
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            createdAt: unarchivedAt,
+          },
+          readModel: unarchivedReadModel,
+        }),
+      ),
+    ).rejects.toThrow("is not archived");
+  });
 });

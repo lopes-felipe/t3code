@@ -56,6 +56,7 @@ function makeSnapshot(input: {
           completedAt: "2026-01-01T00:00:00.000Z",
           assistantMessageId: null,
         },
+        archivedAt: null,
         createdAt: "2026-01-01T00:00:00.000Z",
         lastInteractionAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",

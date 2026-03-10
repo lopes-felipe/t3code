@@ -9,6 +9,7 @@ import {
 } from "../keybindings";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { isArchivedThread } from "../lib/threadOrdering";
 import { useStore } from "../store";
 import {
   advanceCycle,
@@ -97,7 +98,9 @@ export default function ThreadRecencyController() {
   const [recencyState, setRecencyState] = useState<ThreadRecencyState>(EMPTY_THREAD_RECENCY_STATE);
 
   const eligibleThreadIds = useMemo(() => {
-    const threadIds = threads.map((thread) => thread.id);
+    const threadIds = threads
+      .filter((thread) => !isArchivedThread(thread))
+      .map((thread) => thread.id);
     const draftThreadIds = Object.keys(draftThreadsByThreadId).map((threadId) =>
       ThreadId.makeUnsafe(threadId),
     );

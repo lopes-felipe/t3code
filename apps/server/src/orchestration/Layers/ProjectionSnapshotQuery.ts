@@ -150,6 +150,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               FROM projection_threads AS child
               WHERE child.project_id = projection_projects.project_id
                 AND child.deleted_at IS NULL
+                AND child.archived_at IS NULL
             ),
             projection_projects.created_at
           ) DESC,
@@ -173,6 +174,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           branch,
           worktree_path AS "worktreePath",
           latest_turn_id AS "latestTurnId",
+          archived_at AS "archivedAt",
           created_at AS "createdAt",
           last_interaction_at AS "lastInteractionAt",
           updated_at AS "updatedAt",
@@ -546,6 +548,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             branch: row.branch,
             worktreePath: row.worktreePath,
             latestTurn: latestTurnByThread.get(row.threadId) ?? null,
+            archivedAt: row.archivedAt,
             createdAt: row.createdAt,
             lastInteractionAt: row.lastInteractionAt,
             updatedAt: row.updatedAt,

@@ -97,6 +97,7 @@ export interface Thread {
   proposedPlans: ProposedPlan[];
   error: string | null;
   createdAt: string;
+  archivedAt: string | null;
   lastInteractionAt: string;
   latestTurn: OrchestrationLatestTurn | null;
   lastVisitedAt?: string | undefined;
