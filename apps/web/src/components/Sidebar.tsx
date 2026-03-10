@@ -310,6 +310,9 @@ export default function Sidebar() {
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  const [collapsedArchivedSectionsByProject, setCollapsedArchivedSectionsByProject] = useState<
+    ReadonlySet<ProjectId>
+  >(() => new Set());
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const dragInProgressRef = useRef(false);
@@ -1294,6 +1297,18 @@ export default function Sidebar() {
     });
   }, []);
 
+  const toggleArchivedSectionForProject = useCallback((projectId: ProjectId) => {
+    setCollapsedArchivedSectionsByProject((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) {
+        next.delete(projectId);
+      } else {
+        next.add(projectId);
+      }
+      return next;
+    });
+  }, []);
+
   const wordmark = (
     <div className="flex items-center gap-2">
       <SidebarTrigger className="shrink-0 md:hidden" />
@@ -1485,6 +1500,9 @@ export default function Sidebar() {
                   const archivedExpanded = expandedThreadListsByProject.has(
                     threadBucketExpansionKey(project.id, "archived"),
                   );
+                  const archivedSectionCollapsed = collapsedArchivedSectionsByProject.has(
+                    project.id,
+                  );
                   const visibleActiveThreads =
                     activeExpanded || activeThreads.length <= THREAD_PREVIEW_LIMIT
                       ? activeThreads
@@ -1497,7 +1515,7 @@ export default function Sidebar() {
                   const hasHiddenArchivedThreads = archivedThreads.length > THREAD_PREVIEW_LIMIT;
                   const orderedProjectThreadIds = buildRenderedProjectThreadIds({
                     activeThreadIds,
-                    archivedThreadIds,
+                    archivedThreadIds: archivedSectionCollapsed ? [] : archivedThreadIds,
                     activeExpanded,
                     archivedExpanded,
                     previewLimit: THREAD_PREVIEW_LIMIT,
@@ -1736,37 +1754,39 @@ export default function Sidebar() {
                                             />
                                           </span>
                                         )}
-                                        <span
-                                          className={`text-[10px] transition-opacity group-hover/thread-row:opacity-0 group-focus-within/thread-row:opacity-0 ${
-                                            isHighlighted
-                                              ? "text-foreground/65"
-                                              : "text-muted-foreground/40"
-                                          }`}
-                                        >
-                                          {formatRelativeTime(thread.lastInteractionAt)}
-                                        </span>
-                                        <button
-                                          type="button"
-                                          aria-label={`Archive ${thread.title}`}
-                                          className={`rounded-sm px-1.5 py-0.5 text-[10px] font-medium transition-opacity opacity-0 hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/thread-row:opacity-100 group-focus-within/thread-row:opacity-100 ${
-                                            isHighlighted
-                                              ? "text-foreground/70"
-                                              : "text-muted-foreground/70"
-                                          }`}
-                                          onMouseDown={(event) => {
-                                            event.stopPropagation();
-                                          }}
-                                          onClick={(event) => {
-                                            event.preventDefault();
-                                            event.stopPropagation();
-                                            void setThreadArchived(thread.id, true);
-                                          }}
-                                          onKeyDown={(event) => {
-                                            event.stopPropagation();
-                                          }}
-                                        >
-                                          Archive
-                                        </button>
+                                        <div className="shrink-0 text-right">
+                                          <span
+                                            className={`block text-[10px] group-hover/thread-row:hidden group-focus-within/thread-row:hidden ${
+                                              isHighlighted
+                                                ? "text-foreground/65"
+                                                : "text-muted-foreground/40"
+                                            }`}
+                                          >
+                                            {formatRelativeTime(thread.lastInteractionAt)}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            aria-label={`Archive ${thread.title}`}
+                                            className={`hidden whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[10px] font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/thread-row:inline-flex group-focus-within/thread-row:inline-flex ${
+                                              isHighlighted
+                                                ? "text-foreground/70"
+                                                : "text-muted-foreground/70"
+                                            }`}
+                                            onMouseDown={(event) => {
+                                              event.stopPropagation();
+                                            }}
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                              void setThreadArchived(thread.id, true);
+                                            }}
+                                            onKeyDown={(event) => {
+                                              event.stopPropagation();
+                                            }}
+                                          >
+                                            Archive
+                                          </button>
+                                        </div>
                                       </div>
                                     </SidebarMenuSubButton>
                                   </SidebarMenuSubItem>
@@ -1805,12 +1825,29 @@ export default function Sidebar() {
                               )}
 
                               {archivedThreads.length > 0 ? (
-                                <SidebarMenuSubItem className="w-full px-2 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/45">
-                                  Archived
+                                <SidebarMenuSubItem className="w-full">
+                                  <SidebarMenuSubButton
+                                    render={<button type="button" />}
+                                    data-thread-selection-safe
+                                    aria-expanded={!archivedSectionCollapsed}
+                                    size="sm"
+                                    className="h-6 w-full translate-x-0 justify-start gap-1 px-2 text-left text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/45 hover:bg-accent hover:text-muted-foreground/70"
+                                    onClick={() => {
+                                      toggleArchivedSectionForProject(project.id);
+                                    }}
+                                  >
+                                    <ChevronRightIcon
+                                      className={`size-3 shrink-0 transition-transform duration-150 ${
+                                        archivedSectionCollapsed ? "" : "rotate-90"
+                                      }`}
+                                    />
+                                    <span>Archived</span>
+                                  </SidebarMenuSubButton>
                                 </SidebarMenuSubItem>
                               ) : null}
 
-                              {visibleArchivedThreads.map((thread) => {
+                              {!archivedSectionCollapsed &&
+                                visibleArchivedThreads.map((thread) => {
                                 const isActive = routeThreadId === thread.id;
                                 const isSelected = selectedThreadIds.has(thread.id);
                                 const isHighlighted = isActive || isSelected;
@@ -1980,44 +2017,46 @@ export default function Sidebar() {
                                             />
                                           </span>
                                         )}
-                                        <span
-                                          className={`text-[10px] transition-opacity group-hover/thread-row:opacity-0 group-focus-within/thread-row:opacity-0 ${
-                                            isHighlighted
-                                              ? "text-foreground/65"
-                                              : "text-muted-foreground/40"
-                                          }`}
-                                        >
-                                          {formatRelativeTime(thread.lastInteractionAt)}
-                                        </span>
-                                        <button
-                                          type="button"
-                                          aria-label={`Unarchive ${thread.title}`}
-                                          className={`rounded-sm px-1.5 py-0.5 text-[10px] font-medium transition-opacity opacity-0 hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/thread-row:opacity-100 group-focus-within/thread-row:opacity-100 ${
-                                            isHighlighted
-                                              ? "text-foreground/70"
-                                              : "text-muted-foreground/70"
-                                          }`}
-                                          onMouseDown={(event) => {
-                                            event.stopPropagation();
-                                          }}
-                                          onClick={(event) => {
-                                            event.preventDefault();
-                                            event.stopPropagation();
-                                            void setThreadArchived(thread.id, false);
-                                          }}
-                                          onKeyDown={(event) => {
-                                            event.stopPropagation();
-                                          }}
-                                        >
-                                          Unarchive
-                                        </button>
+                                        <div className="shrink-0 text-right">
+                                          <span
+                                            className={`block text-[10px] group-hover/thread-row:hidden group-focus-within/thread-row:hidden ${
+                                              isHighlighted
+                                                ? "text-foreground/65"
+                                                : "text-muted-foreground/40"
+                                            }`}
+                                          >
+                                            {formatRelativeTime(thread.lastInteractionAt)}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            aria-label={`Unarchive ${thread.title}`}
+                                            className={`hidden whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[10px] font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/thread-row:inline-flex group-focus-within/thread-row:inline-flex ${
+                                              isHighlighted
+                                                ? "text-foreground/70"
+                                                : "text-muted-foreground/70"
+                                            }`}
+                                            onMouseDown={(event) => {
+                                              event.stopPropagation();
+                                            }}
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                              void setThreadArchived(thread.id, false);
+                                            }}
+                                            onKeyDown={(event) => {
+                                              event.stopPropagation();
+                                            }}
+                                          >
+                                            Unarchive
+                                          </button>
+                                        </div>
                                       </div>
                                     </SidebarMenuSubButton>
                                   </SidebarMenuSubItem>
                                 );
                               })}
 
-                              {hasHiddenArchivedThreads && !archivedExpanded && (
+                              {!archivedSectionCollapsed && hasHiddenArchivedThreads && !archivedExpanded && (
                                 <SidebarMenuSubItem className="w-full">
                                   <SidebarMenuSubButton
                                     render={<button type="button" />}
@@ -2032,7 +2071,7 @@ export default function Sidebar() {
                                   </SidebarMenuSubButton>
                                 </SidebarMenuSubItem>
                               )}
-                              {hasHiddenArchivedThreads && archivedExpanded && (
+                              {!archivedSectionCollapsed && hasHiddenArchivedThreads && archivedExpanded && (
                                 <SidebarMenuSubItem className="w-full">
                                   <SidebarMenuSubButton
                                     render={<button type="button" />}
