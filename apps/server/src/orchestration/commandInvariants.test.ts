@@ -14,6 +14,8 @@ import {
   findThreadById,
   listThreadsByProjectId,
   requireNonNegativeInteger,
+  requireThreadArchived,
+  requireThreadNotArchived,
   requireThread,
   requireThreadAbsent,
 } from "./commandInvariants.ts";
@@ -56,6 +58,7 @@ const readModel: OrchestrationReadModel = {
       branch: null,
       worktreePath: null,
       createdAt: now,
+      archivedAt: null,
       lastInteractionAt: now,
       updatedAt: now,
       latestTurn: null,
@@ -76,6 +79,7 @@ const readModel: OrchestrationReadModel = {
       branch: null,
       worktreePath: null,
       createdAt: now,
+      archivedAt: "2026-03-01T00:10:00.000Z",
       lastInteractionAt: now,
       updatedAt: now,
       latestTurn: null,
@@ -178,6 +182,68 @@ describe("commandInvariants", () => {
         }),
       ),
     ).rejects.toThrow("already exists");
+  });
+
+  it("requires threads to be unarchived before archiving", async () => {
+    const thread = await Effect.runPromise(
+      requireThreadNotArchived({
+        readModel,
+        command: {
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("cmd-archive"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          createdAt: now,
+        },
+        threadId: ThreadId.makeUnsafe("thread-1"),
+      }),
+    );
+    expect(thread.id).toBe(ThreadId.makeUnsafe("thread-1"));
+
+    await expect(
+      Effect.runPromise(
+        requireThreadNotArchived({
+          readModel,
+          command: {
+            type: "thread.archive",
+            commandId: CommandId.makeUnsafe("cmd-archive-dup"),
+            threadId: ThreadId.makeUnsafe("thread-2"),
+            createdAt: now,
+          },
+          threadId: ThreadId.makeUnsafe("thread-2"),
+        }),
+      ),
+    ).rejects.toThrow("already archived");
+  });
+
+  it("requires threads to be archived before unarchiving", async () => {
+    const thread = await Effect.runPromise(
+      requireThreadArchived({
+        readModel,
+        command: {
+          type: "thread.unarchive",
+          commandId: CommandId.makeUnsafe("cmd-unarchive"),
+          threadId: ThreadId.makeUnsafe("thread-2"),
+          createdAt: now,
+        },
+        threadId: ThreadId.makeUnsafe("thread-2"),
+      }),
+    );
+    expect(thread.id).toBe(ThreadId.makeUnsafe("thread-2"));
+
+    await expect(
+      Effect.runPromise(
+        requireThreadArchived({
+          readModel,
+          command: {
+            type: "thread.unarchive",
+            commandId: CommandId.makeUnsafe("cmd-unarchive-missing"),
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            createdAt: now,
+          },
+          threadId: ThreadId.makeUnsafe("thread-1"),
+        }),
+      ),
+    ).rejects.toThrow("is not archived");
   });
 
   it("requires non-negative integers", async () => {

@@ -79,6 +79,7 @@ describe("orchestration projector", () => {
         branch: null,
         worktreePath: null,
         latestTurn: null,
+        archivedAt: null,
         createdAt: now,
         lastInteractionAt: now,
         updatedAt: now,
@@ -266,6 +267,80 @@ describe("orchestration projector", () => {
 
     expect(afterUpdate.threads[0]?.runtimeMode).toBe("approval-required");
     expect(afterUpdate.threads[0]?.updatedAt).toBe(updatedAt);
+  });
+
+  it("toggles archivedAt for thread archive lifecycle events", async () => {
+    const createdAt = "2026-03-10T08:00:00.000Z";
+    const archivedAt = "2026-03-10T08:05:00.000Z";
+    const unarchivedAt = "2026-03-10T08:10:00.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const afterCreate = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: createdAt,
+          commandId: "cmd-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "demo",
+            model: "gpt-5-codex",
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      ),
+    );
+
+    const afterArchive = await Effect.runPromise(
+      projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 2,
+          type: "thread.archived",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: archivedAt,
+          commandId: "cmd-archive",
+          payload: {
+            threadId: "thread-1",
+            archivedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(afterArchive.threads[0]?.archivedAt).toBe(archivedAt);
+    expect(afterArchive.threads[0]?.lastInteractionAt).toBe(createdAt);
+
+    const afterUnarchive = await Effect.runPromise(
+      projectEvent(
+        afterArchive,
+        makeEvent({
+          sequence: 3,
+          type: "thread.unarchived",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: unarchivedAt,
+          commandId: "cmd-unarchive",
+          payload: {
+            threadId: "thread-1",
+            unarchivedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(afterUnarchive.threads[0]?.archivedAt).toBeNull();
+    expect(afterUnarchive.threads[0]?.lastInteractionAt).toBe(createdAt);
   });
 
   it("does not change lastInteractionAt for metadata-only thread updates", async () => {

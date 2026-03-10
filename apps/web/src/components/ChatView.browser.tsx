@@ -215,6 +215,7 @@ function createSnapshotForTargetUser(options: {
         branch: "main",
         worktreePath: null,
         latestTurn: null,
+        archivedAt: null,
         createdAt: NOW_ISO,
         lastInteractionAt: NOW_ISO,
         updatedAt: NOW_ISO,
