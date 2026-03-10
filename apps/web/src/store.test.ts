@@ -26,6 +26,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     proposedPlans: [],
     error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
+    archivedAt: null,
     lastInteractionAt: "2026-02-13T00:00:00.000Z",
     latestTurn: null,
     branch: null,
@@ -64,6 +65,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     worktreePath: null,
     latestTurn: null,
     createdAt: "2026-02-27T00:00:00.000Z",
+    archivedAt: null,
     lastInteractionAt: "2026-02-27T00:00:00.000Z",
     updatedAt: "2026-02-27T00:00:00.000Z",
     deletedAt: null,
@@ -282,5 +284,18 @@ describe("store read model sync", () => {
     const next = syncServerReadModel(initialState, readModel);
 
     expect(next.projects.map((project) => project.id)).toEqual([project2, project1, project3]);
+  });
+
+  it("maps archivedAt from the read model", () => {
+    const initialState = makeState(makeThread());
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        archivedAt: "2026-03-10T09:00:00.000Z",
+      }),
+    );
+
+    const next = syncServerReadModel(initialState, readModel);
+
+    expect(next.threads[0]?.archivedAt).toBe("2026-03-10T09:00:00.000Z");
   });
 });

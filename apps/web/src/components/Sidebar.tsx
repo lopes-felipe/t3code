@@ -44,6 +44,8 @@ import { isMacPlatform, newCommandId, newProjectId, newThreadId } from "../lib/u
 import {
   getMostRecentProject,
   getMostRecentThreadForProject,
+  isArchivedThread,
+  partitionThreadsByArchive,
   sortThreadsByActivity,
 } from "../lib/threadOrdering";
 import { useStore } from "../store";
@@ -88,7 +90,13 @@ import {
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
-import { resolveThreadStatusPill, shouldClearThreadSelectionOnMouseDown } from "./Sidebar.logic";
+import {
+  buildRenderedProjectThreadIds,
+  resolveThreadStatusPill,
+  shouldClearThreadSelectionOnMouseDown,
+  threadBucketExpansionKey,
+  type SidebarThreadBucket,
+} from "./Sidebar.logic";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const THREAD_PREVIEW_LIMIT = 6;
@@ -300,7 +308,7 @@ export default function Sidebar() {
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
-    ReadonlySet<ProjectId>
+    ReadonlySet<string>
   >(() => new Set());
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
@@ -638,6 +646,29 @@ export default function Sidebar() {
     [],
   );
 
+  const setThreadArchived = useCallback(
+    async (threadId: ThreadId, archived: boolean) => {
+      const api = readNativeApi();
+      if (!api) return;
+
+      try {
+        await api.orchestration.dispatchCommand({
+          type: archived ? "thread.archive" : "thread.unarchive",
+          commandId: newCommandId(),
+          threadId,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: archived ? "Failed to archive thread" : "Failed to unarchive thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    },
+    [],
+  );
+
   /**
    * Delete a single thread: stop session, close terminal, dispatch delete,
    * clean up drafts/state, and optionally remove orphaned worktree.
@@ -699,7 +730,12 @@ export default function Sidebar() {
       const shouldNavigateToFallback = routeThreadId === threadId;
       const fallbackThreadId =
         sortThreadsByActivity(
-          threads.filter((entry) => entry.id !== threadId && !allDeletedIds.has(entry.id)),
+          threads.filter(
+            (entry) =>
+              entry.id !== threadId &&
+              !allDeletedIds.has(entry.id) &&
+              !isArchivedThread(entry),
+          ),
         )[0]?.id ?? null;
       await api.orchestration.dispatchCommand({
         type: "thread.delete",
@@ -762,22 +798,36 @@ export default function Sidebar() {
     async (threadId: ThreadId, position: { x: number; y: number }) => {
       const api = readNativeApi();
       if (!api) return;
+      const thread = threads.find((t) => t.id === threadId);
+      if (!thread) return;
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },
+          {
+            id: thread.archivedAt === null ? "archive" : "unarchive",
+            label: thread.archivedAt === null ? "Archive" : "Unarchive",
+          },
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
           { id: "delete", label: "Delete", destructive: true },
         ],
         position,
       );
-      const thread = threads.find((t) => t.id === threadId);
-      if (!thread) return;
 
       if (clicked === "rename") {
         setRenamingThreadId(threadId);
         setRenamingTitle(thread.title);
         renamingCommittedRef.current = false;
+        return;
+      }
+
+      if (clicked === "archive") {
+        await setThreadArchived(threadId, true);
+        return;
+      }
+
+      if (clicked === "unarchive") {
+        await setThreadArchived(threadId, false);
         return;
       }
 
@@ -816,7 +866,7 @@ export default function Sidebar() {
       }
       await deleteThread(threadId);
     },
-    [appSettings.confirmThreadDelete, deleteThread, markThreadUnread, threads],
+    [appSettings.confirmThreadDelete, deleteThread, markThreadUnread, setThreadArchived, threads],
   );
 
   const handleMultiSelectContextMenu = useCallback(
@@ -1224,20 +1274,22 @@ export default function Sidebar() {
     }
   }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
 
-  const expandThreadListForProject = useCallback((projectId: ProjectId) => {
+  const expandThreadListForProject = useCallback((projectId: ProjectId, bucket: SidebarThreadBucket) => {
     setExpandedThreadListsByProject((current) => {
-      if (current.has(projectId)) return current;
+      const key = threadBucketExpansionKey(projectId, bucket);
+      if (current.has(key)) return current;
       const next = new Set(current);
-      next.add(projectId);
+      next.add(key);
       return next;
     });
   }, []);
 
-  const collapseThreadListForProject = useCallback((projectId: ProjectId) => {
+  const collapseThreadListForProject = useCallback((projectId: ProjectId, bucket: SidebarThreadBucket) => {
     setExpandedThreadListsByProject((current) => {
-      if (!current.has(projectId)) return current;
+      const key = threadBucketExpansionKey(projectId, bucket);
+      if (!current.has(key)) return current;
       const next = new Set(current);
-      next.delete(projectId);
+      next.delete(key);
       return next;
     });
   }, []);
@@ -1420,16 +1472,36 @@ export default function Sidebar() {
                 strategy={verticalListSortingStrategy}
               >
                 {projects.map((project) => {
-                  const projectThreads = sortThreadsByActivity(
-                    threads.filter((thread) => thread.projectId === project.id),
+                  const projectThreads = threads.filter((thread) => thread.projectId === project.id);
+                  const { activeThreads: unsortedActiveThreads, archivedThreads: unsortedArchivedThreads } =
+                    partitionThreadsByArchive(projectThreads);
+                  const activeThreads = sortThreadsByActivity(unsortedActiveThreads);
+                  const archivedThreads = sortThreadsByActivity(unsortedArchivedThreads);
+                  const activeThreadIds = activeThreads.map((thread) => thread.id);
+                  const archivedThreadIds = archivedThreads.map((thread) => thread.id);
+                  const activeExpanded = expandedThreadListsByProject.has(
+                    threadBucketExpansionKey(project.id, "active"),
                   );
-                  const isThreadListExpanded = expandedThreadListsByProject.has(project.id);
-                  const hasHiddenThreads = projectThreads.length > THREAD_PREVIEW_LIMIT;
-                  const visibleThreads =
-                    hasHiddenThreads && !isThreadListExpanded
-                      ? projectThreads.slice(0, THREAD_PREVIEW_LIMIT)
-                      : projectThreads;
-                  const orderedProjectThreadIds = projectThreads.map((t) => t.id);
+                  const archivedExpanded = expandedThreadListsByProject.has(
+                    threadBucketExpansionKey(project.id, "archived"),
+                  );
+                  const visibleActiveThreads =
+                    activeExpanded || activeThreads.length <= THREAD_PREVIEW_LIMIT
+                      ? activeThreads
+                      : activeThreads.slice(0, THREAD_PREVIEW_LIMIT);
+                  const visibleArchivedThreads =
+                    archivedExpanded || archivedThreads.length <= THREAD_PREVIEW_LIMIT
+                      ? archivedThreads
+                      : archivedThreads.slice(0, THREAD_PREVIEW_LIMIT);
+                  const hasHiddenActiveThreads = activeThreads.length > THREAD_PREVIEW_LIMIT;
+                  const hasHiddenArchivedThreads = archivedThreads.length > THREAD_PREVIEW_LIMIT;
+                  const orderedProjectThreadIds = buildRenderedProjectThreadIds({
+                    activeThreadIds,
+                    archivedThreadIds,
+                    activeExpanded,
+                    archivedExpanded,
+                    previewLimit: THREAD_PREVIEW_LIMIT,
+                  });
 
                   return (
                     <SortableProjectItem key={project.id} projectId={project.id}>
@@ -1494,7 +1566,7 @@ export default function Sidebar() {
 
                           <CollapsibleContent keepMounted>
                             <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 px-1.5 py-0">
-                              {visibleThreads.map((thread) => {
+                              {visibleActiveThreads.map((thread) => {
                                 const isActive = routeThreadId === thread.id;
                                 const isSelected = selectedThreadIds.has(thread.id);
                                 const isHighlighted = isActive || isSelected;
@@ -1516,7 +1588,7 @@ export default function Sidebar() {
                                 return (
                                   <SidebarMenuSubItem
                                     key={thread.id}
-                                    className="w-full"
+                                    className="group/thread-row w-full"
                                     data-thread-item
                                   >
                                     <SidebarMenuSubButton
@@ -1665,7 +1737,7 @@ export default function Sidebar() {
                                           </span>
                                         )}
                                         <span
-                                          className={`text-[10px] ${
+                                          className={`text-[10px] transition-opacity group-hover/thread-row:opacity-0 group-focus-within/thread-row:opacity-0 ${
                                             isHighlighted
                                               ? "text-foreground/65"
                                               : "text-muted-foreground/40"
@@ -1673,13 +1745,35 @@ export default function Sidebar() {
                                         >
                                           {formatRelativeTime(thread.lastInteractionAt)}
                                         </span>
+                                        <button
+                                          type="button"
+                                          aria-label={`Archive ${thread.title}`}
+                                          className={`rounded-sm px-1.5 py-0.5 text-[10px] font-medium transition-opacity opacity-0 hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/thread-row:opacity-100 group-focus-within/thread-row:opacity-100 ${
+                                            isHighlighted
+                                              ? "text-foreground/70"
+                                              : "text-muted-foreground/70"
+                                          }`}
+                                          onMouseDown={(event) => {
+                                            event.stopPropagation();
+                                          }}
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            void setThreadArchived(thread.id, true);
+                                          }}
+                                          onKeyDown={(event) => {
+                                            event.stopPropagation();
+                                          }}
+                                        >
+                                          Archive
+                                        </button>
                                       </div>
                                     </SidebarMenuSubButton>
                                   </SidebarMenuSubItem>
                                 );
                               })}
 
-                              {hasHiddenThreads && !isThreadListExpanded && (
+                              {hasHiddenActiveThreads && !activeExpanded && (
                                 <SidebarMenuSubItem className="w-full">
                                   <SidebarMenuSubButton
                                     render={<button type="button" />}
@@ -1687,14 +1781,14 @@ export default function Sidebar() {
                                     size="sm"
                                     className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
                                     onClick={() => {
-                                      expandThreadListForProject(project.id);
+                                      expandThreadListForProject(project.id, "active");
                                     }}
                                   >
                                     <span>Show more</span>
                                   </SidebarMenuSubButton>
                                 </SidebarMenuSubItem>
                               )}
-                              {hasHiddenThreads && isThreadListExpanded && (
+                              {hasHiddenActiveThreads && activeExpanded && (
                                 <SidebarMenuSubItem className="w-full">
                                   <SidebarMenuSubButton
                                     render={<button type="button" />}
@@ -1702,7 +1796,251 @@ export default function Sidebar() {
                                     size="sm"
                                     className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
                                     onClick={() => {
-                                      collapseThreadListForProject(project.id);
+                                      collapseThreadListForProject(project.id, "active");
+                                    }}
+                                  >
+                                    <span>Show less</span>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              )}
+
+                              {archivedThreads.length > 0 ? (
+                                <SidebarMenuSubItem className="w-full px-2 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/45">
+                                  Archived
+                                </SidebarMenuSubItem>
+                              ) : null}
+
+                              {visibleArchivedThreads.map((thread) => {
+                                const isActive = routeThreadId === thread.id;
+                                const isSelected = selectedThreadIds.has(thread.id);
+                                const isHighlighted = isActive || isSelected;
+                                const threadStatus = resolveThreadStatusPill({
+                                  thread,
+                                  hasPendingApprovals:
+                                    pendingApprovalByThreadId.get(thread.id) === true,
+                                  hasPendingUserInput:
+                                    pendingUserInputByThreadId.get(thread.id) === true,
+                                });
+                                const prStatus = prStatusIndicator(
+                                  prByThreadId.get(thread.id) ?? null,
+                                );
+                                const terminalStatus = terminalStatusFromRunningIds(
+                                  selectThreadTerminalState(terminalStateByThreadId, thread.id)
+                                    .runningTerminalIds,
+                                );
+
+                                return (
+                                  <SidebarMenuSubItem
+                                    key={thread.id}
+                                    className="group/thread-row w-full"
+                                    data-thread-item
+                                  >
+                                    <SidebarMenuSubButton
+                                      render={<div role="button" tabIndex={0} />}
+                                      size="sm"
+                                      isActive={isActive}
+                                      className={`h-7 w-full translate-x-0 cursor-default justify-start px-2 text-left select-none hover:bg-accent hover:text-foreground focus-visible:ring-0 ${
+                                        isSelected
+                                          ? "bg-primary/15 text-foreground dark:bg-primary/10"
+                                          : isActive
+                                            ? "bg-accent/85 text-foreground font-medium dark:bg-accent/55"
+                                            : "text-muted-foreground"
+                                      }`}
+                                      onClick={(event) => {
+                                        handleThreadClick(
+                                          event,
+                                          thread.id,
+                                          orderedProjectThreadIds,
+                                        );
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (event.key !== "Enter" && event.key !== " ") return;
+                                        event.preventDefault();
+                                        if (selectedThreadIds.size > 0) {
+                                          clearSelection();
+                                        }
+                                        setSelectionAnchor(thread.id);
+                                        void navigate({
+                                          to: "/$threadId",
+                                          params: { threadId: thread.id },
+                                        });
+                                      }}
+                                      onContextMenu={(event) => {
+                                        event.preventDefault();
+                                        if (
+                                          selectedThreadIds.size > 0 &&
+                                          selectedThreadIds.has(thread.id)
+                                        ) {
+                                          void handleMultiSelectContextMenu({
+                                            x: event.clientX,
+                                            y: event.clientY,
+                                          });
+                                        } else {
+                                          if (selectedThreadIds.size > 0) {
+                                            clearSelection();
+                                          }
+                                          void handleThreadContextMenu(thread.id, {
+                                            x: event.clientX,
+                                            y: event.clientY,
+                                          });
+                                        }
+                                      }}
+                                    >
+                                      <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+                                        {prStatus && (
+                                          <Tooltip>
+                                            <TooltipTrigger
+                                              render={
+                                                <button
+                                                  type="button"
+                                                  aria-label={prStatus.tooltip}
+                                                  className={`inline-flex items-center justify-center ${prStatus.colorClass} cursor-pointer rounded-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring`}
+                                                  onClick={(event) => {
+                                                    openPrLink(event, prStatus.url);
+                                                  }}
+                                                >
+                                                  <GitPullRequestIcon className="size-3" />
+                                                </button>
+                                              }
+                                            />
+                                            <TooltipPopup side="top">
+                                              {prStatus.tooltip}
+                                            </TooltipPopup>
+                                          </Tooltip>
+                                        )}
+                                        {threadStatus && (
+                                          <span
+                                            className={`inline-flex items-center gap-1 text-[10px] ${threadStatus.colorClass}`}
+                                          >
+                                            <span
+                                              className={`h-1.5 w-1.5 rounded-full ${threadStatus.dotClass} ${
+                                                threadStatus.pulse ? "animate-pulse" : ""
+                                              }`}
+                                            />
+                                            <span className="hidden md:inline">
+                                              {threadStatus.label}
+                                            </span>
+                                          </span>
+                                        )}
+                                        {renamingThreadId === thread.id ? (
+                                          <input
+                                            ref={(el) => {
+                                              if (el && renamingInputRef.current !== el) {
+                                                renamingInputRef.current = el;
+                                                el.focus();
+                                                el.select();
+                                              }
+                                            }}
+                                            className="min-w-0 flex-1 truncate text-xs bg-transparent outline-none border border-ring rounded px-0.5"
+                                            value={renamingTitle}
+                                            onChange={(e) => setRenamingTitle(e.target.value)}
+                                            onKeyDown={(e) => {
+                                              e.stopPropagation();
+                                              if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                renamingCommittedRef.current = true;
+                                                void commitRename(
+                                                  thread.id,
+                                                  renamingTitle,
+                                                  thread.title,
+                                                );
+                                              } else if (e.key === "Escape") {
+                                                e.preventDefault();
+                                                renamingCommittedRef.current = true;
+                                                cancelRename();
+                                              }
+                                            }}
+                                            onBlur={() => {
+                                              if (!renamingCommittedRef.current) {
+                                                void commitRename(
+                                                  thread.id,
+                                                  renamingTitle,
+                                                  thread.title,
+                                                );
+                                              }
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                          />
+                                        ) : (
+                                          <span className="min-w-0 flex-1 truncate text-xs">
+                                            {thread.title}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                                        {terminalStatus && (
+                                          <span
+                                            role="img"
+                                            aria-label={terminalStatus.label}
+                                            title={terminalStatus.label}
+                                            className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
+                                          >
+                                            <TerminalIcon
+                                              className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`}
+                                            />
+                                          </span>
+                                        )}
+                                        <span
+                                          className={`text-[10px] transition-opacity group-hover/thread-row:opacity-0 group-focus-within/thread-row:opacity-0 ${
+                                            isHighlighted
+                                              ? "text-foreground/65"
+                                              : "text-muted-foreground/40"
+                                          }`}
+                                        >
+                                          {formatRelativeTime(thread.lastInteractionAt)}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          aria-label={`Unarchive ${thread.title}`}
+                                          className={`rounded-sm px-1.5 py-0.5 text-[10px] font-medium transition-opacity opacity-0 hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/thread-row:opacity-100 group-focus-within/thread-row:opacity-100 ${
+                                            isHighlighted
+                                              ? "text-foreground/70"
+                                              : "text-muted-foreground/70"
+                                          }`}
+                                          onMouseDown={(event) => {
+                                            event.stopPropagation();
+                                          }}
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            void setThreadArchived(thread.id, false);
+                                          }}
+                                          onKeyDown={(event) => {
+                                            event.stopPropagation();
+                                          }}
+                                        >
+                                          Unarchive
+                                        </button>
+                                      </div>
+                                    </SidebarMenuSubButton>
+                                  </SidebarMenuSubItem>
+                                );
+                              })}
+
+                              {hasHiddenArchivedThreads && !archivedExpanded && (
+                                <SidebarMenuSubItem className="w-full">
+                                  <SidebarMenuSubButton
+                                    render={<button type="button" />}
+                                    data-thread-selection-safe
+                                    size="sm"
+                                    className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                                    onClick={() => {
+                                      expandThreadListForProject(project.id, "archived");
+                                    }}
+                                  >
+                                    <span>Show more</span>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              )}
+                              {hasHiddenArchivedThreads && archivedExpanded && (
+                                <SidebarMenuSubItem className="w-full">
+                                  <SidebarMenuSubButton
+                                    render={<button type="button" />}
+                                    data-thread-selection-safe
+                                    size="sm"
+                                    className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                                    onClick={() => {
+                                      collapseThreadListForProject(project.id, "archived");
                                     }}
                                   >
                                     <span>Show less</span>

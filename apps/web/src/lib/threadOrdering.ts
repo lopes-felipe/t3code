@@ -16,11 +16,39 @@ export function sortThreadsByActivity(threads: ReadonlyArray<Thread>): Thread[] 
   return threads.toSorted(compareThreadsByActivity);
 }
 
+export function isArchivedThread(thread: Pick<Thread, "archivedAt">): boolean {
+  return thread.archivedAt !== null;
+}
+
+export function partitionThreadsByArchive(
+  threads: ReadonlyArray<Thread>,
+): {
+  readonly activeThreads: Thread[];
+  readonly archivedThreads: Thread[];
+} {
+  const activeThreads: Thread[] = [];
+  const archivedThreads: Thread[] = [];
+
+  for (const thread of threads) {
+    if (isArchivedThread(thread)) {
+      archivedThreads.push(thread);
+    } else {
+      activeThreads.push(thread);
+    }
+  }
+
+  return { activeThreads, archivedThreads };
+}
+
+function getActiveThreads(threads: ReadonlyArray<Thread>): Thread[] {
+  return threads.filter((thread) => !isArchivedThread(thread));
+}
+
 function buildMostRecentThreadByProjectId(
   threads: ReadonlyArray<Thread>,
 ): Map<Project["id"], Thread> {
   const mostRecentThreadByProjectId = new Map<Project["id"], Thread>();
-  for (const thread of threads) {
+  for (const thread of getActiveThreads(threads)) {
     const current = mostRecentThreadByProjectId.get(thread.projectId);
     if (!current || compareThreadsByActivity(thread, current) < 0) {
       mostRecentThreadByProjectId.set(thread.projectId, thread);

@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import { ProjectId, ThreadId } from "@t3tools/contracts";
 
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Project, type Thread } from "../types";
-import { sortProjectsByActivity, sortThreadsByActivity } from "./threadOrdering";
+import {
+  getMostRecentThreadForProject,
+  sortProjectsByActivity,
+  sortThreadsByActivity,
+} from "./threadOrdering";
 
 function makeProject(overrides: Partial<Project> = {}): Project {
   return {
@@ -32,6 +36,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     proposedPlans: [],
     error: null,
     createdAt: "2026-03-01T00:00:00.000Z",
+    archivedAt: null,
     lastInteractionAt: "2026-03-01T00:00:00.000Z",
     latestTurn: null,
     lastVisitedAt: undefined,
@@ -102,5 +107,24 @@ describe("threadOrdering", () => {
       "project-2",
       "project-1",
     ]);
+  });
+
+  it("ignores archived threads for most recent thread selection", () => {
+    const projectId = ProjectId.makeUnsafe("project-1");
+    const activeThread = makeThread({
+      id: ThreadId.makeUnsafe("thread-active"),
+      projectId,
+      lastInteractionAt: "2026-03-02T00:00:00.000Z",
+    });
+    const archivedThread = makeThread({
+      id: ThreadId.makeUnsafe("thread-archived"),
+      projectId,
+      archivedAt: "2026-03-03T00:00:00.000Z",
+      lastInteractionAt: "2026-03-04T00:00:00.000Z",
+    });
+
+    expect(getMostRecentThreadForProject(projectId, [activeThread, archivedThread])?.id).toBe(
+      activeThread.id,
+    );
   });
 });

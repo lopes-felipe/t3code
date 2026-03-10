@@ -340,6 +340,7 @@ function buildLocalDraftThread(
     messages: [],
     error,
     createdAt: draftThread.createdAt,
+    archivedAt: null,
     lastInteractionAt: draftThread.createdAt,
     latestTurn: null,
     lastVisitedAt: draftThread.createdAt,
