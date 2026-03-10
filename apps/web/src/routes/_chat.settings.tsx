@@ -10,6 +10,12 @@ import { useTheme } from "../hooks/useTheme";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { ensureNativeApi } from "../nativeApi";
 import { preferredTerminalEditor } from "../terminal-links";
+import {
+  dismissThreadStatusNotificationPrompt,
+  requestThreadStatusNotificationPermission,
+  resetThreadStatusNotificationPrompt,
+  useThreadStatusNotificationPermissionState,
+} from "../threadStatusNotifications";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Switch } from "../components/ui/switch";
@@ -82,9 +88,11 @@ function patchCustomModels(provider: ProviderKind, models: string[]) {
 function SettingsRouteView() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { settings, defaults, updateSettings } = useAppSettings();
+  const notificationPermission = useThreadStatusNotificationPermissionState();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
+  const [isRequestingNotificationPermission, setIsRequestingNotificationPermission] = useState(false);
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -97,6 +105,14 @@ function SettingsRouteView() {
   const codexBinaryPath = settings.codexBinaryPath;
   const codexHomePath = settings.codexHomePath;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
+  const notificationPermissionSummary =
+    notificationPermission === "granted"
+      ? "granted"
+      : notificationPermission === "denied"
+        ? "denied"
+        : notificationPermission === "default"
+          ? "not requested"
+          : "unsupported";
 
   const openKeybindingsFile = useCallback(() => {
     if (!keybindingsConfigPath) return;
@@ -114,6 +130,23 @@ function SettingsRouteView() {
         setIsOpeningKeybindings(false);
       });
   }, [keybindingsConfigPath]);
+
+  const requestNotificationPermission = useCallback(() => {
+    resetThreadStatusNotificationPrompt();
+    setIsRequestingNotificationPermission(true);
+    void requestThreadStatusNotificationPermission()
+      .then((permissionState) => {
+        if (permissionState !== "granted") {
+          dismissThreadStatusNotificationPrompt();
+        }
+      })
+      .catch(() => {
+        dismissThreadStatusNotificationPrompt();
+      })
+      .finally(() => {
+        setIsRequestingNotificationPermission(false);
+      });
+  }, []);
 
   const addCustomModel = useCallback(
     (provider: ProviderKind) => {
@@ -431,6 +464,94 @@ function SettingsRouteView() {
                   );
                 })}
               </div>
+            </section>
+
+            <section className="rounded-2xl border border-border bg-card p-5">
+              <div className="mb-4">
+                <h2 className="text-sm font-medium text-foreground">Notifications</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Local browser notifications while T3 Code is open but not focused.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-lg border border-border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      Thread status notifications
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Notify when a thread reaches a sidebar status such as pending approval,
+                      awaiting input, plan ready, or completed.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.enableThreadStatusNotifications}
+                    onCheckedChange={(checked) =>
+                      updateSettings({
+                        enableThreadStatusNotifications: Boolean(checked),
+                      })
+                    }
+                    aria-label="Thread status notifications"
+                  />
+                </div>
+
+                <div className="rounded-lg border border-border bg-background px-3 py-3">
+                  <p className="text-xs font-medium text-foreground">Permission status</p>
+                  <p className="mt-1 text-xs text-muted-foreground capitalize">
+                    {notificationPermissionSummary}
+                  </p>
+                  {notificationPermission === "unsupported" ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Notifications are unavailable in this environment.
+                    </p>
+                  ) : null}
+                  {notificationPermission === "denied" ? (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Permission is currently denied in the browser. Re-enable it in your browser
+                      or desktop shell settings to resume notifications.
+                    </p>
+                  ) : null}
+                  {notificationPermission === "default" ? (
+                    <div className="mt-3 flex items-center gap-2">
+                      <Button
+                        size="xs"
+                        onClick={requestNotificationPermission}
+                        disabled={
+                          !settings.enableThreadStatusNotifications ||
+                          isRequestingNotificationPermission
+                        }
+                      >
+                        {isRequestingNotificationPermission
+                          ? "Requesting..."
+                          : "Enable notifications"}
+                      </Button>
+                      {!settings.enableThreadStatusNotifications ? (
+                        <span className="text-xs text-muted-foreground">
+                          Turn the feature on before requesting permission.
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              {settings.enableThreadStatusNotifications !==
+              defaults.enableThreadStatusNotifications ? (
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() =>
+                      updateSettings({
+                        enableThreadStatusNotifications: defaults.enableThreadStatusNotifications,
+                      })
+                    }
+                  >
+                    Restore default
+                  </Button>
+                </div>
+              ) : null}
             </section>
 
             <section className="rounded-2xl border border-border bg-card p-5">

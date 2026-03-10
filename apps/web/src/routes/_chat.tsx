@@ -2,6 +2,7 @@ import { Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
+import ThreadStatusNotificationController from "../components/ThreadStatusNotificationController";
 import ThreadRecencyController from "../components/ThreadRecencyController";
 import ThreadSidebar from "../components/Sidebar";
 import { Sidebar, SidebarProvider } from "~/components/ui/sidebar";
@@ -36,6 +37,7 @@ function ChatRouteLayout() {
       </Sidebar>
       <DiffWorkerPoolProvider>
         <ThreadRecencyController />
+        <ThreadStatusNotificationController />
         <Outlet />
       </DiffWorkerPoolProvider>
     </SidebarProvider>
