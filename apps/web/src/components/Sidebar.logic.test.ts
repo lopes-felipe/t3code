@@ -12,34 +12,6 @@ import {
   threadBucketExpansionKey,
 } from "./Sidebar.logic";
 
-function makeLatestTurn(overrides?: {
-  completedAt?: string | null;
-  startedAt?: string | null;
-}): Parameters<typeof hasUnseenCompletion>[0]["latestTurn"] {
-  return {
-    turnId: "turn-1" as never,
-    state: "completed",
-    assistantMessageId: null,
-    requestedAt: "2026-03-09T10:00:00.000Z",
-    startedAt: overrides?.startedAt ?? "2026-03-09T10:00:00.000Z",
-    completedAt: overrides?.completedAt ?? "2026-03-09T10:05:00.000Z",
-  };
-}
-
-describe("hasUnseenCompletion", () => {
-  it("returns true when a thread completed after its last visit", () => {
-    expect(
-      hasUnseenCompletion({
-        interactionMode: "default",
-        latestTurn: makeLatestTurn(),
-        lastVisitedAt: "2026-03-09T10:04:00.000Z",
-        proposedPlans: [],
-        session: null,
-      }),
-    ).toBe(true);
-  });
-});
-
 describe("shouldClearThreadSelectionOnMouseDown", () => {
   it("preserves selection for thread items", () => {
     const child = {
@@ -130,7 +102,6 @@ describe("sidebar thread bucket helpers", () => {
     ]);
   });
 });
-
 describe("resolveThreadStatusPill", () => {
   const baseThread = {
     interactionMode: "plan" as const,

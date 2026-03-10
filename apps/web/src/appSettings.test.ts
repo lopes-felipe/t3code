@@ -4,9 +4,34 @@ import {
   DEFAULT_TIMESTAMP_FORMAT,
   getAppModelOptions,
   normalizeCustomModelSlugs,
+  parsePersistedAppSettings,
   resolveAppModelSelection,
 } from "./appSettings";
 
+describe("parsePersistedAppSettings", () => {
+  it("defaults git status auto-refresh to true", () => {
+    expect(parsePersistedAppSettings(null).enableGitStatusAutoRefresh).toBe(true);
+  });
+
+  it("defaults thread status notifications to true", () => {
+    expect(parsePersistedAppSettings(null).enableThreadStatusNotifications).toBe(true);
+  });
+
+  it("decodes older persisted settings payloads with git status auto-refresh enabled", () => {
+    const parsed = parsePersistedAppSettings(
+      JSON.stringify({
+        codexBinaryPath: "",
+        codexHomePath: "",
+        confirmThreadDelete: true,
+        enableAssistantStreaming: false,
+        customCodexModels: [],
+      }),
+    );
+
+    expect(parsed.enableGitStatusAutoRefresh).toBe(true);
+    expect(parsed.enableThreadStatusNotifications).toBe(true);
+  });
+});
 describe("normalizeCustomModelSlugs", () => {
   it("normalizes aliases, removes built-ins, and deduplicates values", () => {
     expect(

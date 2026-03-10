@@ -31,6 +31,9 @@ const AppSettingsSchema = Schema.Struct({
   enableGitStatusAutoRefresh: Schema.Boolean.pipe(
     Schema.withConstructorDefault(() => Option.some(true)),
   ),
+  enableThreadStatusNotifications: Schema.Boolean.pipe(
+    Schema.withConstructorDefault(() => Option.some(true)),
+  ),
   timestampFormat: Schema.Literals(["locale", "12-hour", "24-hour"]).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_TIMESTAMP_FORMAT)),
   ),
@@ -46,6 +49,18 @@ export interface AppModelOption {
 }
 
 const DEFAULT_APP_SETTINGS = AppSettingsSchema.makeUnsafe({});
+
+export function parsePersistedAppSettings(value: string | null): AppSettings {
+  if (!value) {
+    return DEFAULT_APP_SETTINGS;
+  }
+
+  try {
+    return Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema))(value);
+  } catch {
+    return DEFAULT_APP_SETTINGS;
+  }
+}
 
 export function normalizeCustomModelSlugs(
   models: Iterable<string | null | undefined>,
