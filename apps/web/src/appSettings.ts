@@ -24,6 +24,9 @@ const AppSettingsSchema = Schema.Struct({
   enableGitStatusAutoRefresh: Schema.Boolean.pipe(
     Schema.withConstructorDefault(() => Option.some(true)),
   ),
+  enableThreadStatusNotifications: Schema.Boolean.pipe(
+    Schema.withConstructorDefault(() => Option.some(true)),
+  ),
   customCodexModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
   ),

@@ -15,7 +15,10 @@ export default mergeConfig(
       },
     },
     test: {
-      include: ["src/components/ChatView.browser.tsx"],
+      include: [
+        "src/components/ChatView.browser.tsx",
+        "src/components/ThreadStatusNotificationController.browser.tsx",
+      ],
       browser: {
         enabled: true,
         provider: playwright(),

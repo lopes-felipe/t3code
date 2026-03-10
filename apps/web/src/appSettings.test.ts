@@ -13,19 +13,24 @@ describe("parsePersistedAppSettings", () => {
     expect(parsePersistedAppSettings(null).enableGitStatusAutoRefresh).toBe(true);
   });
 
+  it("defaults thread status notifications to true", () => {
+    expect(parsePersistedAppSettings(null).enableThreadStatusNotifications).toBe(true);
+  });
+
   it("decodes older persisted settings payloads with git status auto-refresh enabled", () => {
-    expect(
-      parsePersistedAppSettings(
-        JSON.stringify({
-          codexBinaryPath: "",
-          codexHomePath: "",
-          confirmThreadDelete: true,
-          enableAssistantStreaming: false,
-          codexServiceTier: "auto",
-          customCodexModels: [],
-        }),
-      ).enableGitStatusAutoRefresh,
-    ).toBe(true);
+    const parsed = parsePersistedAppSettings(
+      JSON.stringify({
+        codexBinaryPath: "",
+        codexHomePath: "",
+        confirmThreadDelete: true,
+        enableAssistantStreaming: false,
+        codexServiceTier: "auto",
+        customCodexModels: [],
+      }),
+    );
+
+    expect(parsed.enableGitStatusAutoRefresh).toBe(true);
+    expect(parsed.enableThreadStatusNotifications).toBe(true);
   });
 });
 
