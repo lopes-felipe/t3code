@@ -268,6 +268,7 @@ function SortableProjectItem({
 export default function Sidebar() {
   const projects = useStore((store) => store.projects);
   const threads = useStore((store) => store.threads);
+  const threadsHydrated = useStore((store) => store.threadsHydrated);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const toggleProject = useStore((store) => store.toggleProject);
   const reorderProjects = useStore((store) => store.reorderProjects);
@@ -315,6 +316,7 @@ export default function Sidebar() {
   >(() => new Set());
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
+  const archivedSectionsInitializedRef = useRef(false);
   const dragInProgressRef = useRef(false);
   const suppressProjectClickAfterDragRef = useRef(false);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
@@ -1308,6 +1310,21 @@ export default function Sidebar() {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    if (archivedSectionsInitializedRef.current || !threadsHydrated) {
+      return;
+    }
+
+    archivedSectionsInitializedRef.current = true;
+    setCollapsedArchivedSectionsByProject(
+      new Set(
+        threads
+          .filter((thread) => isArchivedThread(thread))
+          .map((thread) => thread.projectId),
+      ),
+    );
+  }, [threads, threadsHydrated]);
 
   const wordmark = (
     <div className="flex items-center gap-2">
