@@ -108,7 +108,6 @@ import {
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_THREAD_TERMINAL_COUNT,
   type ChatMessage,
-  type Thread,
   type TurnDiffFileChange,
   type TurnDiffSummary,
 } from "../types";
@@ -120,6 +119,7 @@ import {
   summarizeTurnDiffStats,
   type TurnDiffTreeNode,
 } from "../lib/turnDiffTree";
+import { buildLocalDraftThread } from "../lib/draftThreads";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import BranchToolbar from "./BranchToolbar";
 import GitActionsControl from "./GitActionsControl";
@@ -215,7 +215,6 @@ import {
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
-  type DraftThreadState,
   type PersistedComposerImageAttachment,
   useComposerDraftStore,
   useComposerThreadDraft,
@@ -326,36 +325,6 @@ function buildExpandedImagePreview(
   return {
     images: previewableImages.map((image) => ({ src: image.src, name: image.name })),
     index: selectedIndex,
-  };
-}
-
-function buildLocalDraftThread(
-  threadId: ThreadId,
-  draftThread: DraftThreadState,
-  fallbackModel: string,
-  error: string | null,
-): Thread {
-  return {
-    id: threadId,
-    codexThreadId: null,
-    projectId: draftThread.projectId,
-    title: "New thread",
-    model: fallbackModel,
-    runtimeMode: draftThread.runtimeMode,
-    interactionMode: draftThread.interactionMode,
-    session: null,
-    messages: [],
-    error,
-    createdAt: draftThread.createdAt,
-    archivedAt: null,
-    lastInteractionAt: draftThread.createdAt,
-    latestTurn: null,
-    lastVisitedAt: draftThread.createdAt,
-    branch: draftThread.branch,
-    worktreePath: draftThread.worktreePath,
-    turnDiffSummaries: [],
-    activities: [],
-    proposedPlans: [],
   };
 }
 
@@ -752,12 +721,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const localDraftThread = useMemo(
     () =>
       draftThread
-        ? buildLocalDraftThread(
+        ? buildLocalDraftThread({
             threadId,
             draftThread,
-            fallbackDraftProject?.model ?? DEFAULT_MODEL_BY_PROVIDER.codex,
-            localDraftError,
-          )
+            projectModel: fallbackDraftProject?.model ?? DEFAULT_MODEL_BY_PROVIDER.codex,
+            error: localDraftError,
+          })
         : undefined,
     [draftThread, fallbackDraftProject?.model, localDraftError, threadId],
   );

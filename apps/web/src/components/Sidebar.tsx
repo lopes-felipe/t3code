@@ -48,6 +48,11 @@ import {
   partitionThreadsByArchive,
   sortThreadsByActivity,
 } from "../lib/threadOrdering";
+import {
+  getProjectThreadsWithDraft,
+  getVisibleThreadsWithPinnedDraft,
+  isDraftThreadId,
+} from "../lib/draftThreads";
 import { useStore } from "../store";
 import { isChatNewLocalShortcut, isChatNewShortcut, shortcutLabelForCommand } from "../keybindings";
 import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
@@ -91,7 +96,6 @@ import { useThreadSelectionStore } from "../threadSelectionStore";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
 import {
-  buildRenderedProjectThreadIds,
   resolveThreadStatusPill,
   shouldClearThreadSelectionOnMouseDown,
   threadBucketExpansionKey,
@@ -271,8 +275,10 @@ export default function Sidebar() {
   const threadsHydrated = useStore((store) => store.threadsHydrated);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const toggleProject = useStore((store) => store.toggleProject);
+  const setProjectExpanded = useStore((store) => store.setProjectExpanded);
   const reorderProjects = useStore((store) => store.reorderProjects);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearThreadDraft);
+  const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const getDraftThreadByProjectId = useComposerDraftStore(
     (store) => store.getDraftThreadByProjectId,
   );
@@ -343,6 +349,7 @@ export default function Sidebar() {
     }
     return map;
   }, [threads]);
+  const persistedThreadIds = useMemo(() => new Set(threads.map((thread) => thread.id)), [threads]);
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
@@ -435,6 +442,7 @@ export default function Sidebar() {
       const storedDraftThread = getDraftThreadByProjectId(projectId);
       if (storedDraftThread) {
         return (async () => {
+          setProjectExpanded(projectId, true);
           if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
             setDraftThreadContext(storedDraftThread.threadId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
@@ -456,6 +464,7 @@ export default function Sidebar() {
 
       const activeDraftThread = routeThreadId ? getDraftThread(routeThreadId) : null;
       if (activeDraftThread && routeThreadId && activeDraftThread.projectId === projectId) {
+        setProjectExpanded(projectId, true);
         if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
           setDraftThreadContext(routeThreadId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
@@ -469,6 +478,7 @@ export default function Sidebar() {
       const threadId = newThreadId();
       const createdAt = new Date().toISOString();
       return (async () => {
+        setProjectExpanded(projectId, true);
         setProjectDraftThreadId(projectId, threadId, {
           createdAt,
           branch: options?.branch ?? null,
@@ -490,6 +500,7 @@ export default function Sidebar() {
       getDraftThread,
       routeThreadId,
       setDraftThreadContext,
+      setProjectExpanded,
       setProjectDraftThreadId,
     ],
   );
@@ -926,28 +937,36 @@ export default function Sidebar() {
   );
 
   const handleThreadClick = useCallback(
-    (event: MouseEvent, threadId: ThreadId, orderedProjectThreadIds: readonly ThreadId[]) => {
+    (
+      event: MouseEvent,
+      threadId: ThreadId,
+      orderedProjectThreadIds: readonly ThreadId[],
+      options?: { isDraft?: boolean },
+    ) => {
       const isMac = isMacPlatform(navigator.platform);
       const isModClick = isMac ? event.metaKey : event.ctrlKey;
       const isShiftClick = event.shiftKey;
+      const isDraft = options?.isDraft === true;
 
-      if (isModClick) {
+      if (!isDraft && isModClick) {
         event.preventDefault();
         toggleThreadSelection(threadId);
         return;
       }
 
-      if (isShiftClick) {
+      if (!isDraft && isShiftClick) {
         event.preventDefault();
         rangeSelectTo(threadId, orderedProjectThreadIds);
         return;
       }
 
       // Plain click — clear selection, set anchor for future shift-clicks, and navigate
-      if (selectedThreadIds.size > 0) {
+      if (selectedThreadIds.size > 0 || isDraft) {
         clearSelection();
       }
-      setSelectionAnchor(threadId);
+      if (!isDraft) {
+        setSelectionAnchor(threadId);
+      }
       void navigate({
         to: "/$threadId",
         params: { threadId },
@@ -1518,17 +1537,34 @@ export default function Sidebar() {
                 strategy={verticalListSortingStrategy}
               >
                 {projects.map((project) => {
-                  const projectThreads = threads.filter(
+                  const persistedProjectThreads = threads.filter(
                     (thread) => thread.projectId === project.id,
                   );
+                  const persistedDraftThread = getDraftThreadByProjectId(project.id);
+                  const projectThreads = getProjectThreadsWithDraft({
+                    projectId: project.id,
+                    projectThreads: persistedProjectThreads,
+                    draftThread: persistedDraftThread,
+                    projectModel: project.model,
+                  });
+                  const { activeThreads: unsortedPersistedActiveThreads } =
+                    partitionThreadsByArchive(persistedProjectThreads);
                   const {
                     activeThreads: unsortedActiveThreads,
                     archivedThreads: unsortedArchivedThreads,
                   } = partitionThreadsByArchive(projectThreads);
+                  const persistedActiveThreads = sortThreadsByActivity(
+                    unsortedPersistedActiveThreads,
+                  );
                   const activeThreads = sortThreadsByActivity(unsortedActiveThreads);
                   const archivedThreads = sortThreadsByActivity(unsortedArchivedThreads);
-                  const activeThreadIds = activeThreads.map((thread) => thread.id);
-                  const archivedThreadIds = archivedThreads.map((thread) => thread.id);
+                  const projectDraftThreadId =
+                    persistedDraftThread &&
+                    !persistedProjectThreads.some(
+                      (thread) => thread.id === persistedDraftThread.threadId,
+                    )
+                      ? persistedDraftThread.threadId
+                      : null;
                   const activeExpanded = expandedThreadListsByProject.has(
                     threadBucketExpansionKey(project.id, "active"),
                   );
@@ -1538,23 +1574,30 @@ export default function Sidebar() {
                   const archivedSectionCollapsed = collapsedArchivedSectionsByProject.has(
                     project.id,
                   );
-                  const visibleActiveThreads =
-                    activeExpanded || activeThreads.length <= THREAD_PREVIEW_LIMIT
-                      ? activeThreads
-                      : activeThreads.slice(0, THREAD_PREVIEW_LIMIT);
+                  const visibleActiveThreads = getVisibleThreadsWithPinnedDraft({
+                    threads: activeThreads,
+                    expanded: activeExpanded || activeThreads.length <= THREAD_PREVIEW_LIMIT,
+                    previewLimit: THREAD_PREVIEW_LIMIT,
+                    draftThreadId: projectDraftThreadId,
+                  });
                   const visibleArchivedThreads =
                     archivedExpanded || archivedThreads.length <= THREAD_PREVIEW_LIMIT
                       ? archivedThreads
                       : archivedThreads.slice(0, THREAD_PREVIEW_LIMIT);
-                  const hasHiddenActiveThreads = activeThreads.length > THREAD_PREVIEW_LIMIT;
+                  const hasHiddenActiveThreads =
+                    persistedActiveThreads.length > THREAD_PREVIEW_LIMIT;
                   const hasHiddenArchivedThreads = archivedThreads.length > THREAD_PREVIEW_LIMIT;
-                  const orderedProjectThreadIds = buildRenderedProjectThreadIds({
-                    activeThreadIds,
-                    archivedThreadIds: archivedSectionCollapsed ? [] : archivedThreadIds,
-                    activeExpanded,
-                    archivedExpanded,
-                    previewLimit: THREAD_PREVIEW_LIMIT,
-                  });
+                  const orderedProjectThreadIds = [
+                    ...visibleActiveThreads
+                      .filter(
+                        (thread) =>
+                          !isDraftThreadId(thread.id, draftThreadsByThreadId, persistedThreadIds),
+                      )
+                      .map((thread) => thread.id),
+                    ...(!archivedSectionCollapsed
+                      ? visibleArchivedThreads.map((thread) => thread.id)
+                      : []),
+                  ];
 
                   return (
                     <SortableProjectItem key={project.id} projectId={project.id}>
@@ -1621,8 +1664,14 @@ export default function Sidebar() {
                           <CollapsibleContent keepMounted>
                             <SidebarMenuSub className="mx-1 my-0 w-full translate-x-0 gap-0.5 px-1.5 py-0">
                               {visibleActiveThreads.map((thread) => {
+                                const isDraftThread = isDraftThreadId(
+                                  thread.id,
+                                  draftThreadsByThreadId,
+                                  persistedThreadIds,
+                                );
                                 const isActive = routeThreadId === thread.id;
-                                const isSelected = selectedThreadIds.has(thread.id);
+                                const isSelected =
+                                  !isDraftThread && selectedThreadIds.has(thread.id);
                                 const isHighlighted = isActive || isSelected;
                                 const threadStatus = resolveThreadStatusPill({
                                   thread,
@@ -1661,15 +1710,18 @@ export default function Sidebar() {
                                           event,
                                           thread.id,
                                           orderedProjectThreadIds,
+                                          { isDraft: isDraftThread },
                                         );
                                       }}
                                       onKeyDown={(event) => {
                                         if (event.key !== "Enter" && event.key !== " ") return;
                                         event.preventDefault();
-                                        if (selectedThreadIds.size > 0) {
+                                        if (selectedThreadIds.size > 0 || isDraftThread) {
                                           clearSelection();
                                         }
-                                        setSelectionAnchor(thread.id);
+                                        if (!isDraftThread) {
+                                          setSelectionAnchor(thread.id);
+                                        }
                                         void navigate({
                                           to: "/$threadId",
                                           params: { threadId: thread.id },
@@ -1677,6 +1729,12 @@ export default function Sidebar() {
                                       }}
                                       onContextMenu={(event) => {
                                         event.preventDefault();
+                                        if (isDraftThread) {
+                                          if (selectedThreadIds.size > 0) {
+                                            clearSelection();
+                                          }
+                                          return;
+                                        }
                                         if (
                                           selectedThreadIds.size > 0 &&
                                           selectedThreadIds.has(thread.id)
@@ -1732,7 +1790,7 @@ export default function Sidebar() {
                                             </span>
                                           </span>
                                         )}
-                                        {renamingThreadId === thread.id ? (
+                                        {!isDraftThread && renamingThreadId === thread.id ? (
                                           <input
                                             ref={(el) => {
                                               if (el && renamingInputRef.current !== el) {
@@ -1800,28 +1858,30 @@ export default function Sidebar() {
                                           >
                                             {formatRelativeTime(thread.lastInteractionAt)}
                                           </span>
-                                          <button
-                                            type="button"
-                                            aria-label={`Archive ${thread.title}`}
-                                            className={`hidden whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[10px] font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/thread-row:inline-flex group-focus-within/thread-row:inline-flex ${
-                                              isHighlighted
-                                                ? "text-foreground/70"
-                                                : "text-muted-foreground/70"
-                                            }`}
-                                            onMouseDown={(event) => {
-                                              event.stopPropagation();
-                                            }}
-                                            onClick={(event) => {
-                                              event.preventDefault();
-                                              event.stopPropagation();
-                                              void setThreadArchived(thread.id, true);
-                                            }}
-                                            onKeyDown={(event) => {
-                                              event.stopPropagation();
-                                            }}
-                                          >
-                                            Archive
-                                          </button>
+                                          {!isDraftThread ? (
+                                            <button
+                                              type="button"
+                                              aria-label={`Archive ${thread.title}`}
+                                              className={`hidden whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[10px] font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/thread-row:inline-flex group-focus-within/thread-row:inline-flex ${
+                                                isHighlighted
+                                                  ? "text-foreground/70"
+                                                  : "text-muted-foreground/70"
+                                              }`}
+                                              onMouseDown={(event) => {
+                                                event.stopPropagation();
+                                              }}
+                                              onClick={(event) => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                void setThreadArchived(thread.id, true);
+                                              }}
+                                              onKeyDown={(event) => {
+                                                event.stopPropagation();
+                                              }}
+                                            >
+                                              Archive
+                                            </button>
+                                          ) : null}
                                         </div>
                                       </div>
                                     </SidebarMenuSubButton>
