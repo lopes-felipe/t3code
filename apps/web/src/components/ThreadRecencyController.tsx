@@ -3,10 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useComposerDraftStore } from "../composerDraftStore";
-import {
-  resolveShortcutBinding,
-  type ShortcutEventLike,
-} from "../keybindings";
+import { resolveShortcutBinding, type ShortcutEventLike } from "../keybindings";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isArchivedThread } from "../lib/threadOrdering";
@@ -41,8 +38,10 @@ function areRequiredHeldModifiersPressed(
 
 function currentTerminalOpen(threadId: ThreadId | null): boolean {
   if (!threadId) return false;
-  return selectThreadTerminalState(useTerminalStateStore.getState().terminalStateByThreadId, threadId)
-    .terminalOpen;
+  return selectThreadTerminalState(
+    useTerminalStateStore.getState().terminalStateByThreadId,
+    threadId,
+  ).terminalOpen;
 }
 
 function clearPendingCycleNavigations(
@@ -201,8 +200,7 @@ export default function ThreadRecencyController() {
 
       const activeCycle = recencyStateRef.current.activeCycle;
       const transition =
-        activeCycle &&
-        areRequiredHeldModifiersPressed(activeCycle.heldModifiers, event)
+        activeCycle && areRequiredHeldModifiersPressed(activeCycle.heldModifiers, event)
           ? advanceCycle(recencyStateRef.current, direction)
           : beginCycle(recencyStateRef.current, {
               direction,

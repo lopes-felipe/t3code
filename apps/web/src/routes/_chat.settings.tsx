@@ -1,9 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
-import { type ProviderKind } from "@t3tools/contracts";
+import { DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER, type ProviderKind } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
-import { MAX_CUSTOM_MODEL_LENGTH, useAppSettings } from "../appSettings";
+import {
+  MAX_CUSTOM_MODEL_LENGTH,
+  getAppModelOptions,
+  resolveAuxiliaryAppModelSelection,
+  useAppSettings,
+} from "../appSettings";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { isElectron } from "../env";
 import { useTheme } from "../hooks/useTheme";
@@ -105,7 +110,8 @@ function SettingsRouteView() {
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
-  const [isRequestingNotificationPermission, setIsRequestingNotificationPermission] = useState(false);
+  const [isRequestingNotificationPermission, setIsRequestingNotificationPermission] =
+    useState(false);
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -417,6 +423,17 @@ function SettingsRouteView() {
                   const customModels = getCustomModelsForProvider(settings, provider);
                   const customModelInput = customModelInputByProvider[provider];
                   const customModelError = customModelErrorByProvider[provider] ?? null;
+                  const threadTitleModelOptions = getAppModelOptions(
+                    provider,
+                    customModels,
+                    settings.codexThreadTitleModel,
+                  );
+                  const effectiveThreadTitleModel = resolveAuxiliaryAppModelSelection(
+                    provider,
+                    customModels,
+                    settings.codexThreadTitleModel,
+                    DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER[provider],
+                  );
                   return (
                     <div
                       key={provider}
@@ -432,6 +449,39 @@ function SettingsRouteView() {
                       </div>
 
                       <div className="space-y-4">
+                        <label className="block space-y-1">
+                          <span className="text-xs font-medium text-foreground">
+                            Thread title model
+                          </span>
+                          <Input
+                            list={`thread-title-model-options-${provider}`}
+                            value={settings.codexThreadTitleModel}
+                            onChange={(event) =>
+                              updateSettings({ codexThreadTitleModel: event.target.value })
+                            }
+                            placeholder={DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER[provider]}
+                            spellCheck={false}
+                          />
+                          <datalist id={`thread-title-model-options-${provider}`}>
+                            {threadTitleModelOptions.map((option) => (
+                              <option
+                                key={`${provider}:thread-title:${option.slug}`}
+                                value={option.slug}
+                              >
+                                {option.name}
+                              </option>
+                            ))}
+                          </datalist>
+                          <span className="text-xs text-muted-foreground">
+                            Used for async first-thread title generation. Enter any model slug or
+                            pick a saved suggestion. Invalid or removed saved slugs fall back to{" "}
+                            <code>{DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER[provider]}</code>.
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Effective model: <code>{effectiveThreadTitleModel}</code>
+                          </span>
+                        </label>
+
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                           <label
                             htmlFor={`custom-model-slug-${provider}`}
@@ -620,8 +670,8 @@ function SettingsRouteView() {
                   ) : null}
                   {notificationPermission === "denied" ? (
                     <p className="mt-2 text-xs text-muted-foreground">
-                      Permission is currently denied in the browser. Re-enable it in your browser
-                      or desktop shell settings to resume notifications.
+                      Permission is currently denied in the browser. Re-enable it in your browser or
+                      desktop shell settings to resume notifications.
                     </p>
                   ) : null}
                   {notificationPermission === "default" ? (

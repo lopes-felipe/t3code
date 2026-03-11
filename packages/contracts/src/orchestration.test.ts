@@ -148,6 +148,51 @@ it.effect("preserves explicit provider and runtime mode in thread.turn.start", (
   }),
 );
 
+it.effect("decodes thread.turn.start title generation fields when provided", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-title-fields",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-title-fields",
+        role: "user",
+        text: "hello",
+        attachments: [],
+      },
+      titleGenerationModel: "gpt-5.3-codex",
+      titleSourceText: "",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.titleGenerationModel, "gpt-5.3-codex");
+    assert.strictEqual(parsed.titleSourceText, "");
+  }),
+);
+
+it.effect("decodes client thread.turn.start title generation fields when provided", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeClientOrchestrationCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-client-turn-title-fields",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-client-title-fields",
+        role: "user",
+        text: "hello",
+        attachments: [],
+      },
+      titleGenerationModel: "gpt-5.3-codex",
+      titleSourceText: "",
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.type, "thread.turn.start");
+    assert.strictEqual(parsed.titleGenerationModel, "gpt-5.3-codex");
+    assert.strictEqual(parsed.titleSourceText, "");
+  }),
+);
+
 it.effect("decodes thread.created runtime mode for historical events", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeThreadCreatedPayload({
@@ -270,6 +315,20 @@ it.effect(
       assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
       assert.strictEqual(parsed.interactionMode, DEFAULT_PROVIDER_INTERACTION_MODE);
     }),
+);
+
+it.effect("decodes thread.turn-start-requested title generation fields when provided", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartRequestedPayload({
+      threadId: "thread-1",
+      messageId: "msg-1",
+      titleGenerationModel: "gpt-5.3-codex",
+      titleSourceText: "",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.titleGenerationModel, "gpt-5.3-codex");
+    assert.strictEqual(parsed.titleSourceText, "");
+  }),
 );
 
 it.effect("decodes orchestration session runtime mode defaults", () =>

@@ -1,3 +1,4 @@
+import { DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -5,6 +6,7 @@ import {
   getAppModelOptions,
   normalizeCustomModelSlugs,
   parsePersistedAppSettings,
+  resolveAuxiliaryAppModelSelection,
   resolveAppModelSelection,
 } from "./appSettings";
 
@@ -30,6 +32,24 @@ describe("parsePersistedAppSettings", () => {
 
     expect(parsed.enableGitStatusAutoRefresh).toBe(true);
     expect(parsed.enableThreadStatusNotifications).toBe(true);
+    expect(parsed.codexThreadTitleModel).toBe(DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex);
+  });
+
+  it("restores a persisted thread title model selection", () => {
+    const parsed = parsePersistedAppSettings(
+      JSON.stringify({
+        codexBinaryPath: "",
+        codexHomePath: "",
+        confirmThreadDelete: true,
+        enableAssistantStreaming: false,
+        enableGitStatusAutoRefresh: true,
+        enableThreadStatusNotifications: true,
+        customCodexModels: ["custom/thread-title-model"],
+        codexThreadTitleModel: "custom/thread-title-model",
+      }),
+    );
+
+    expect(parsed.codexThreadTitleModel).toBe("custom/thread-title-model");
   });
 });
 describe("normalizeCustomModelSlugs", () => {
@@ -81,6 +101,52 @@ describe("resolveAppModelSelection", () => {
 
   it("falls back to the provider default when no model is selected", () => {
     expect(resolveAppModelSelection("codex", [], "")).toBe("gpt-5.4");
+  });
+});
+
+describe("resolveAuxiliaryAppModelSelection", () => {
+  it("preserves saved auxiliary custom model slugs", () => {
+    expect(
+      resolveAuxiliaryAppModelSelection(
+        "codex",
+        ["galapagos-alpha"],
+        "galapagos-alpha",
+        DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex,
+      ),
+    ).toBe("galapagos-alpha");
+  });
+
+  it("falls back to the auxiliary default when the selection is empty", () => {
+    expect(
+      resolveAuxiliaryAppModelSelection(
+        "codex",
+        [],
+        "",
+        DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex,
+      ),
+    ).toBe(DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex);
+  });
+
+  it("falls back to the auxiliary default when a custom model slug was removed", () => {
+    expect(
+      resolveAuxiliaryAppModelSelection(
+        "codex",
+        [],
+        "removed-custom-model",
+        DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex,
+      ),
+    ).toBe(DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex);
+  });
+
+  it("matches built-in model names case-insensitively", () => {
+    expect(
+      resolveAuxiliaryAppModelSelection(
+        "codex",
+        [],
+        "gpt-5.3 codex",
+        DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex,
+      ),
+    ).toBe("gpt-5.3-codex");
   });
 });
 

@@ -149,15 +149,13 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     Effect.sync(() => {
       assert.isTrue(
         DEFAULT_KEYBINDINGS.some(
-          (entry) =>
-            entry.key === "ctrl+tab" && entry.command === "thread.switchRecentNext",
+          (entry) => entry.key === "ctrl+tab" && entry.command === "thread.switchRecentNext",
         ),
       );
       assert.isTrue(
         DEFAULT_KEYBINDINGS.some(
           (entry) =>
-            entry.key === "ctrl+shift+tab" &&
-            entry.command === "thread.switchRecentPrevious",
+            entry.key === "ctrl+shift+tab" && entry.command === "thread.switchRecentPrevious",
         ),
       );
     }),

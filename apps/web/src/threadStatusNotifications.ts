@@ -2,8 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { ThreadId } from "@t3tools/contracts";
 import { isVisibleThreadStatus, threadStatusLabel, type ThreadStatus } from "./threadStatus";
 
-const THREAD_STATUS_NOTIFICATION_PROMPT_STORAGE_KEY =
-  "t3code:thread-status-notification-prompt:v1";
+const THREAD_STATUS_NOTIFICATION_PROMPT_STORAGE_KEY = "t3code:thread-status-notification-prompt:v1";
 
 export type ThreadStatusNotificationPermissionState = NotificationPermission | "unsupported";
 
@@ -19,8 +18,10 @@ export interface ThreadStatusNotificationSnapshot {
   status: ThreadStatus;
 }
 
-export interface ThreadStatusNotificationTransition
-  extends Omit<ThreadStatusNotificationSnapshot, "status"> {
+export interface ThreadStatusNotificationTransition extends Omit<
+  ThreadStatusNotificationSnapshot,
+  "status"
+> {
   previousStatus: ThreadStatus;
   status: Exclude<ThreadStatus, "none">;
 }
@@ -52,9 +53,7 @@ function emitPermissionChange(): void {
   }
 }
 
-function parsePromptState(
-  value: string | null,
-): ThreadStatusNotificationPromptState {
+function parsePromptState(value: string | null): ThreadStatusNotificationPromptState {
   if (!value) {
     return { shown: false, dismissed: false };
   }

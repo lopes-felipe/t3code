@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Option, Schema } from "effect";
-import { type ProviderKind } from "@t3tools/contracts";
+import { DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER, type ProviderKind } from "@t3tools/contracts";
 import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 
@@ -39,6 +39,9 @@ const AppSettingsSchema = Schema.Struct({
   ),
   customCodexModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
+  ),
+  codexThreadTitleModel: Schema.String.check(Schema.isMaxLength(MAX_CUSTOM_MODEL_LENGTH)).pipe(
+    Schema.withConstructorDefault(() => Option.some(DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex)),
   ),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
@@ -157,6 +160,40 @@ export function resolveAppModelSelection(
   return (
     options.find((option) => option.slug === normalizedSelectedModel)?.slug ??
     getDefaultModel(provider)
+  );
+}
+
+export function resolveAuxiliaryAppModelSelection(
+  provider: ProviderKind,
+  customModels: readonly string[],
+  selectedModel: string | null | undefined,
+  fallbackModel: string,
+): string {
+  const options = getAppModelOptions(provider, customModels);
+  const normalizedFallback =
+    normalizeModelSlug(fallbackModel, provider) ?? getDefaultModel(provider);
+  const trimmedSelectedModel = selectedModel?.trim();
+  if (trimmedSelectedModel) {
+    const direct = options.find((option) => option.slug === trimmedSelectedModel);
+    if (direct) {
+      return direct.slug;
+    }
+
+    const byName = options.find(
+      (option) => option.name.toLowerCase() === trimmedSelectedModel.toLowerCase(),
+    );
+    if (byName) {
+      return byName.slug;
+    }
+  }
+
+  const normalizedSelectedModel = normalizeModelSlug(selectedModel, provider);
+  if (!normalizedSelectedModel) {
+    return normalizedFallback;
+  }
+
+  return (
+    options.find((option) => option.slug === normalizedSelectedModel)?.slug ?? normalizedFallback
   );
 }
 

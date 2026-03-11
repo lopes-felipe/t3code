@@ -107,7 +107,12 @@ export function ThreadStatusNotificationControllerContent({
     promptVisibleForSessionRef.current = true;
     setPromptVisible(true);
     markThreadStatusNotificationPromptShown();
-  }, [permission, promptState.dismissed, promptState.shown, settings.enableThreadStatusNotifications]);
+  }, [
+    permission,
+    promptState.dismissed,
+    promptState.shown,
+    settings.enableThreadStatusNotifications,
+  ]);
 
   useEffect(() => {
     if (!threadsHydrated) {
@@ -169,8 +174,8 @@ export function ThreadStatusNotificationControllerContent({
         <BellIcon />
         <AlertTitle>Thread notifications are available</AlertTitle>
         <AlertDescription>
-          Get local notifications when a thread needs approval, input, or completes while the app
-          is in the background.
+          Get local notifications when a thread needs approval, input, or completes while the app is
+          in the background.
         </AlertDescription>
         <AlertAction>
           <Button
