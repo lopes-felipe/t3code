@@ -83,6 +83,7 @@ import {
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
+  type TurnDiffFileChange,
   type TurnDiffSummary,
 } from "../types";
 import { basenameOfPath } from "../vscode-icons";
@@ -93,6 +94,8 @@ import {
   summarizeTurnDiffStats,
   type TurnDiffTreeNode,
 } from "../lib/turnDiffTree";
+import { buildLocalDraftThread } from "../lib/draftThreads";
+import { isTerminalFocused } from "../lib/terminalFocus";
 import BranchToolbar from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
@@ -158,7 +161,6 @@ import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
 import { ProviderHealthBanner } from "./chat/ProviderHealthBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import {
-  buildLocalDraftThread,
   buildTemporaryWorktreeBranchName,
   cloneComposerImageForRetry,
   collectUserMessageBlobPreviewUrls,
@@ -197,6 +199,264 @@ const extendReplacementRangeForTrailingSpace = (
   }
   return text[rangeEnd] === " " ? rangeEnd + 1 : rangeEnd;
 };
+
+function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
+  if (tone === "error") return "text-rose-300/50 dark:text-rose-300/50";
+  if (tone === "tool") return "text-muted-foreground/70";
+  if (tone === "thinking") return "text-muted-foreground/50";
+  return "text-muted-foreground/40";
+}
+
+interface ExpandedImageItem {
+  src: string;
+  name: string;
+}
+
+interface ExpandedImagePreview {
+  images: ExpandedImageItem[];
+  index: number;
+}
+
+function buildExpandedImagePreview(
+  images: ReadonlyArray<{ id: string; name: string; previewUrl?: string }>,
+  selectedImageId: string,
+): ExpandedImagePreview | null {
+  const previewableImages = images.flatMap((image) =>
+    image.previewUrl ? [{ id: image.id, src: image.previewUrl, name: image.name }] : [],
+  );
+  if (previewableImages.length === 0) {
+    return null;
+  }
+  const selectedIndex = previewableImages.findIndex((image) => image.id === selectedImageId);
+  if (selectedIndex < 0) {
+    return null;
+  }
+  return {
+    images: previewableImages.map((image) => ({ src: image.src, name: image.name })),
+    index: selectedIndex,
+  };
+}
+
+function revokeBlobPreviewUrl(previewUrl: string | undefined): void {
+  if (!previewUrl || typeof URL === "undefined" || !previewUrl.startsWith("blob:")) {
+    return;
+  }
+  URL.revokeObjectURL(previewUrl);
+}
+
+function revokeUserMessagePreviewUrls(message: ChatMessage): void {
+  if (message.role !== "user" || !message.attachments) {
+    return;
+  }
+  for (const attachment of message.attachments) {
+    if (attachment.type !== "image") {
+      continue;
+    }
+    revokeBlobPreviewUrl(attachment.previewUrl);
+  }
+}
+
+function collectUserMessageBlobPreviewUrls(message: ChatMessage): string[] {
+  if (message.role !== "user" || !message.attachments) {
+    return [];
+  }
+  const previewUrls: string[] = [];
+  for (const attachment of message.attachments) {
+    if (attachment.type !== "image") continue;
+    if (!attachment.previewUrl || !attachment.previewUrl.startsWith("blob:")) continue;
+    previewUrls.push(attachment.previewUrl);
+  }
+  return previewUrls;
+}
+
+type ComposerCommandItem =
+  | {
+      id: string;
+      type: "path";
+      path: string;
+      pathKind: ProjectEntry["kind"];
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "slash-command";
+      command: ComposerSlashCommand;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "model";
+      provider: ProviderKind;
+      model: ModelSlug;
+      label: string;
+      description: string;
+    };
+
+type SendPhase = "idle" | "preparing-worktree" | "sending-turn";
+
+interface PullRequestDialogState {
+  initialReference: string | null;
+  key: number;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Could not read image data."));
+    });
+    reader.addEventListener("error", () => {
+      reject(reader.error ?? new Error("Failed to read image."));
+    });
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildTemporaryWorktreeBranchName(): string {
+  // Keep the 8-hex suffix shape for backend temporary-branch detection.
+  const token = randomUUID().slice(0, 8).toLowerCase();
+  return `${WORKTREE_BRANCH_PREFIX}/${token}`;
+}
+
+function cloneComposerImageForRetry(image: ComposerImageAttachment): ComposerImageAttachment {
+  if (typeof URL === "undefined" || !image.previewUrl.startsWith("blob:")) {
+    return image;
+  }
+  try {
+    return {
+      ...image,
+      previewUrl: URL.createObjectURL(image.file),
+    };
+  } catch {
+    return image;
+  }
+}
+
+const VscodeEntryIcon = memo(function VscodeEntryIcon(props: {
+  pathValue: string;
+  kind: "file" | "directory";
+  theme: "light" | "dark";
+  className?: string;
+}) {
+  const [failedIconUrl, setFailedIconUrl] = useState<string | null>(null);
+  const iconUrl = useMemo(
+    () => getVscodeIconUrlForEntry(props.pathValue, props.kind, props.theme),
+    [props.kind, props.pathValue, props.theme],
+  );
+  const failed = failedIconUrl === iconUrl;
+
+  if (failed) {
+    return props.kind === "directory" ? (
+      <FolderIcon className={cn("size-4 text-muted-foreground/80", props.className)} />
+    ) : (
+      <FileIcon className={cn("size-4 text-muted-foreground/80", props.className)} />
+    );
+  }
+
+  return (
+    <img
+      src={iconUrl}
+      alt=""
+      aria-hidden="true"
+      className={cn("size-4 shrink-0", props.className)}
+      loading="lazy"
+      onError={() => setFailedIconUrl(iconUrl)}
+    />
+  );
+});
+
+const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
+  item: ComposerCommandItem;
+  resolvedTheme: "light" | "dark";
+  isActive: boolean;
+  onSelect: (item: ComposerCommandItem) => void;
+}) {
+  return (
+    <CommandItem
+      value={props.item.id}
+      className={cn(
+        "cursor-pointer select-none gap-2",
+        props.isActive && "bg-accent text-accent-foreground",
+      )}
+      onMouseDown={(event) => {
+        event.preventDefault();
+      }}
+      onClick={() => {
+        props.onSelect(props.item);
+      }}
+    >
+      {props.item.type === "path" ? (
+        <VscodeEntryIcon
+          pathValue={props.item.path}
+          kind={props.item.pathKind}
+          theme={props.resolvedTheme}
+        />
+      ) : null}
+      {props.item.type === "slash-command" ? (
+        <BotIcon className="size-4 text-muted-foreground/80" />
+      ) : null}
+      {props.item.type === "model" ? (
+        <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+          model
+        </Badge>
+      ) : null}
+      <span className="flex min-w-0 items-center gap-1.5 truncate">
+        <span className="truncate">{props.item.label}</span>
+      </span>
+      <span className="truncate text-muted-foreground/70 text-xs">{props.item.description}</span>
+    </CommandItem>
+  );
+});
+
+const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
+  items: ComposerCommandItem[];
+  resolvedTheme: "light" | "dark";
+  isLoading: boolean;
+  triggerKind: ComposerTriggerKind | null;
+  activeItemId: string | null;
+  onHighlightedItemChange: (itemId: string | null) => void;
+  onSelect: (item: ComposerCommandItem) => void;
+}) {
+  return (
+    <Command
+      mode="none"
+      onItemHighlighted={(highlightedValue) => {
+        props.onHighlightedItemChange(
+          typeof highlightedValue === "string" ? highlightedValue : null,
+        );
+      }}
+    >
+      <div className="relative overflow-hidden rounded-xl border border-border/80 bg-popover/96 shadow-lg/8 backdrop-blur-xs">
+        <CommandList className="max-h-64">
+          {props.items.map((item) => (
+            <ComposerCommandMenuItem
+              key={item.id}
+              item={item}
+              resolvedTheme={props.resolvedTheme}
+              isActive={props.activeItemId === item.id}
+              onSelect={props.onSelect}
+            />
+          ))}
+        </CommandList>
+        {props.items.length === 0 && (
+          <p className="px-3 py-2 text-muted-foreground/70 text-xs">
+            {props.isLoading
+              ? "Searching workspace files..."
+              : props.triggerKind === "path"
+                ? "No matching files or folders."
+                : "No matching command."}
+          </p>
+        )}
+      </div>
+    </Command>
+  );
+});
 
 interface ChatViewProps {
   threadId: ThreadId;
@@ -375,12 +635,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const localDraftThread = useMemo(
     () =>
       draftThread
-        ? buildLocalDraftThread(
+        ? buildLocalDraftThread({
             threadId,
             draftThread,
-            fallbackDraftProject?.model ?? DEFAULT_MODEL_BY_PROVIDER.codex,
-            localDraftError,
-          )
+            projectModel: fallbackDraftProject?.model ?? DEFAULT_MODEL_BY_PROVIDER.codex,
+            error: localDraftError,
+          })
         : undefined,
     [draftThread, fallbackDraftProject?.model, localDraftError, threadId],
   );

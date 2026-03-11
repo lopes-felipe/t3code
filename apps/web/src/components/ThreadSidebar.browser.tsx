@@ -19,9 +19,10 @@ import { page } from "vitest/browser";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
-import { useComposerDraftStore } from "../composerDraftStore";
+import { COMPOSER_DRAFT_STORAGE_KEY, useComposerDraftStore } from "../composerDraftStore";
 import { getRouter } from "../router";
 import { useStore } from "../store";
+import { useThreadSelectionStore } from "../threadSelectionStore";
 import {
   THREAD_SIDEBAR_MAX_WIDTH_PX,
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
@@ -40,6 +41,7 @@ vi.mock("./DiffPanel", () => ({
 const THREAD_ID = "thread-sidebar-browser-test" as ThreadId;
 const PROJECT_ID = "project-sidebar-browser-test" as ProjectId;
 const NOW_ISO = "2026-03-11T12:00:00.000Z";
+const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const LONG_THREAD_TITLE =
   "A very long thread title that should stay intact and benefit from a wider sidebar during resize tests";
 
@@ -52,6 +54,8 @@ interface TestFixture {
 let fixture: TestFixture;
 
 const wsLink = ws.link(/ws(s)?:\/\/.*/);
+
+type SnapshotThread = OrchestrationReadModel["threads"][number];
 
 function createBaseServerConfig(): ServerConfig {
   return {
@@ -72,7 +76,82 @@ function createBaseServerConfig(): ServerConfig {
   };
 }
 
-function createSnapshot(): OrchestrationReadModel {
+function createSidebarShortcutBindings(): ServerConfig["keybindings"] {
+  return [
+    {
+      command: "chat.new",
+      shortcut: {
+        key: "o",
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: true,
+        altKey: false,
+        modKey: true,
+      },
+    },
+    {
+      command: "chat.newLocal",
+      shortcut: {
+        key: "n",
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: true,
+        altKey: false,
+        modKey: true,
+      },
+    },
+  ];
+}
+
+function createSnapshotThread(
+  overrides: Partial<SnapshotThread> & Pick<SnapshotThread, "id">,
+): SnapshotThread {
+  const { id, ...rest } = overrides;
+  return {
+    id,
+    projectId: PROJECT_ID,
+    title: LONG_THREAD_TITLE,
+    model: "gpt-5",
+    interactionMode: "default",
+    runtimeMode: "full-access",
+    branch: "main",
+    worktreePath: null,
+    latestTurn: null,
+    archivedAt: null,
+    createdAt: NOW_ISO,
+    lastInteractionAt: NOW_ISO,
+    updatedAt: NOW_ISO,
+    deletedAt: null,
+    messages: [
+      {
+        id: `msg-${overrides.id}` as MessageId,
+        role: "user",
+        text: "hello",
+        turnId: null,
+        streaming: false,
+        createdAt: NOW_ISO,
+        updatedAt: NOW_ISO,
+      },
+    ],
+    activities: [],
+    proposedPlans: [],
+    checkpoints: [],
+    session: {
+      threadId: id,
+      status: "ready",
+      providerName: "codex",
+      runtimeMode: "full-access",
+      activeTurnId: null,
+      lastError: null,
+      updatedAt: NOW_ISO,
+    },
+    ...rest,
+  };
+}
+
+function createSnapshot(
+  threads: SnapshotThread[] = [createSnapshotThread({ id: THREAD_ID })],
+): OrchestrationReadModel {
   return {
     snapshotSequence: 1,
     projects: [
@@ -87,54 +166,14 @@ function createSnapshot(): OrchestrationReadModel {
         deletedAt: null,
       },
     ],
-    threads: [
-      {
-        id: THREAD_ID,
-        projectId: PROJECT_ID,
-        title: LONG_THREAD_TITLE,
-        model: "gpt-5",
-        interactionMode: "default",
-        runtimeMode: "full-access",
-        branch: "main",
-        worktreePath: null,
-        latestTurn: null,
-        archivedAt: null,
-        createdAt: NOW_ISO,
-        lastInteractionAt: NOW_ISO,
-        updatedAt: NOW_ISO,
-        deletedAt: null,
-        messages: [
-          {
-            id: "msg-sidebar-browser-test" as MessageId,
-            role: "user",
-            text: "hello",
-            turnId: null,
-            streaming: false,
-            createdAt: NOW_ISO,
-            updatedAt: NOW_ISO,
-          },
-        ],
-        activities: [],
-        proposedPlans: [],
-        checkpoints: [],
-        session: {
-          threadId: THREAD_ID,
-          status: "ready",
-          providerName: "codex",
-          runtimeMode: "full-access",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: NOW_ISO,
-        },
-      },
-    ],
+    threads,
     updatedAt: NOW_ISO,
   };
 }
 
-function buildFixture(): TestFixture {
+function buildFixture(snapshot: OrchestrationReadModel = createSnapshot()): TestFixture {
   return {
-    snapshot: createSnapshot(),
+    snapshot,
     serverConfig: createBaseServerConfig(),
     welcome: {
       cwd: "/repo/project",
@@ -259,6 +298,23 @@ async function waitForElement<T extends Element>(
   return element;
 }
 
+async function waitForPath(
+  router: ReturnType<typeof getRouter>,
+  predicate: (pathname: string) => boolean,
+  message: string,
+): Promise<string> {
+  let pathname = "";
+  await vi.waitFor(
+    () => {
+      pathname = router.state.location.pathname;
+      expect(predicate(pathname), message).toBe(true);
+    },
+    { timeout: 8_000, interval: 16 },
+  );
+
+  return pathname;
+}
+
 function querySidebarRoot(side: "left" | "right"): HTMLElement | null {
   return document.querySelector<HTMLElement>(`[data-slot='sidebar'][data-side='${side}']`);
 }
@@ -272,6 +328,31 @@ function querySidebarContainer(side: "left" | "right"): HTMLElement | null {
 function querySidebarRail(side: "left" | "right"): HTMLButtonElement | null {
   return (
     querySidebarRoot(side)?.querySelector<HTMLButtonElement>("[data-slot='sidebar-rail']") ?? null
+  );
+}
+
+function querySidebarThreadRowsByTitle(title: string): HTMLElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>("[data-slot='sidebar-menu-sub-button']"),
+  ).filter((element) => element.textContent?.includes(title) ?? false);
+}
+
+function querySidebarThreadRowByTitle(title: string): HTMLElement | null {
+  return querySidebarThreadRowsByTitle(title)[0] ?? null;
+}
+
+function queryProjectButton(projectName: string): HTMLElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>("[data-slot='sidebar-menu-button']")).find(
+      (element) => element.textContent?.includes(projectName) ?? false,
+    ) ?? null
+  );
+}
+
+async function waitForSidebarThreadRow(title: string): Promise<HTMLElement> {
+  return waitForElement(
+    () => querySidebarThreadRowByTitle(title),
+    `Expected sidebar row titled "${title}" to render.`,
   );
 }
 
@@ -345,6 +426,7 @@ async function endResize(
 }
 
 async function mountApp(options: {
+  configureFixture?: (fixture: TestFixture) => void;
   height?: number;
   initialEntries: string[];
   width: number;
@@ -354,6 +436,7 @@ async function mountApp(options: {
   router: ReturnType<typeof getRouter>;
 }> {
   fixture = buildFixture();
+  options.configureFixture?.(fixture);
   await setViewport(options.width, options.height ?? 1_100);
   await waitForProductionStyles();
 
@@ -385,7 +468,69 @@ async function mountApp(options: {
   };
 }
 
-describe("Thread sidebar resizing", () => {
+async function dispatchNewThreadShortcut(command: "chat.new" | "chat.newLocal"): Promise<void> {
+  const isMac = navigator.platform.toLowerCase().includes("mac");
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: command === "chat.new" ? "o" : "n",
+      metaKey: isMac,
+      ctrlKey: !isMac,
+      shiftKey: true,
+      altKey: false,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  await waitForLayout();
+}
+
+function addThreadToSnapshot(
+  snapshot: OrchestrationReadModel,
+  threadId: ThreadId,
+): OrchestrationReadModel {
+  return {
+    ...snapshot,
+    threads: [
+      ...snapshot.threads,
+      createSnapshotThread({
+        id: threadId,
+        title: "New thread",
+        createdAt: "2026-03-11T12:05:00.000Z",
+        lastInteractionAt: "2026-03-11T12:05:00.000Z",
+        updatedAt: "2026-03-11T12:05:00.000Z",
+      }),
+    ],
+    updatedAt: "2026-03-11T12:05:00.000Z",
+  };
+}
+
+function seedPersistedDraftStorage(threadId: ThreadId): void {
+  localStorage.setItem(
+    COMPOSER_DRAFT_STORAGE_KEY,
+    JSON.stringify({
+      state: {
+        draftsByThreadId: {},
+        draftThreadsByThreadId: {
+          [threadId]: {
+            projectId: PROJECT_ID,
+            createdAt: "2026-03-10T08:00:00.000Z",
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            envMode: "local",
+          },
+        },
+        projectDraftThreadIdByProjectId: {
+          [PROJECT_ID]: threadId,
+        },
+      },
+      version: 1,
+    }),
+  );
+}
+
+describe("Thread sidebar", () => {
   beforeAll(async () => {
     fixture = buildFixture();
     await worker.start({
@@ -414,6 +559,7 @@ describe("Thread sidebar resizing", () => {
       threads: [],
       threadsHydrated: false,
     });
+    useThreadSelectionStore.getState().clearSelection();
   });
 
   afterEach(() => {
@@ -424,6 +570,12 @@ describe("Thread sidebar resizing", () => {
     const mounted = await mountApp({
       width: 1_400,
       initialEntries: [`/${THREAD_ID}`],
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: createSidebarShortcutBindings(),
+        };
+      },
     });
 
     try {
@@ -473,6 +625,12 @@ describe("Thread sidebar resizing", () => {
     const mounted = await mountApp({
       width: 1_400,
       initialEntries: [`/${THREAD_ID}`],
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: createSidebarShortcutBindings(),
+        };
+      },
     });
 
     try {
@@ -506,6 +664,315 @@ describe("Thread sidebar resizing", () => {
       expect(readSidebarWidth("left")).toBeCloseTo(THREAD_SIDEBAR_MAX_WIDTH_PX, 0);
     } finally {
       await clampedMount.cleanup();
+    }
+  });
+
+  it("shows a new draft row in the project sidebar and auto-expands the project", async () => {
+    useStore.setState({
+      projects: [
+        {
+          id: PROJECT_ID,
+          name: "Project",
+          cwd: "/repo/project",
+          model: "gpt-5",
+          createdAt: NOW_ISO,
+          expanded: false,
+          scripts: [],
+        },
+      ],
+      threads: [],
+      threadsHydrated: false,
+    });
+
+    const mounted = await mountApp({
+      width: 1_400,
+      initialEntries: [`/${THREAD_ID}`],
+    });
+
+    try {
+      await waitForElement(
+        () => queryProjectButton("Project"),
+        "Project button should render before opening a draft.",
+      );
+
+      await page.getByTestId("new-thread-button").click();
+
+      const newThreadPath = await waitForPath(
+        mounted.router,
+        (pathname) => UUID_ROUTE_RE.test(pathname),
+        "Route should switch to the new draft thread.",
+      );
+      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      const newThreadRow = await waitForSidebarThreadRow("New thread");
+
+      expect(newThreadRow.getAttribute("data-active")).toBe("true");
+      expect(
+        useStore.getState().projects.find((project) => project.id === PROJECT_ID)?.expanded,
+      ).toBe(true);
+      expect(useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID)?.threadId).toBe(
+        newThreadId,
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  // TODO: Re-enable once this browser harness can reliably trigger the window-level shortcut path.
+  it.skip("creates a project-scoped draft from chat.new and preserves branch context", async () => {
+    const mounted = await mountApp({
+      width: 1_400,
+      initialEntries: [`/${THREAD_ID}`],
+    });
+
+    try {
+      await waitForElement(
+        () => queryProjectButton("Project"),
+        "Project button should render before triggering chat.new.",
+      );
+      await dispatchNewThreadShortcut("chat.new");
+
+      const newThreadPath = await waitForPath(
+        mounted.router,
+        (pathname) => UUID_ROUTE_RE.test(pathname),
+        "chat.new should navigate to a draft thread route.",
+      );
+      const draftThread = useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID);
+
+      expect(draftThread?.threadId).toBe(newThreadPath.slice(1));
+      expect(draftThread?.branch).toBe("main");
+      expect(draftThread?.worktreePath).toBeNull();
+      expect(querySidebarThreadRowsByTitle("New thread")).toHaveLength(1);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it.skip("reuses the same project draft for chat.newLocal", async () => {
+    const mounted = await mountApp({
+      width: 1_400,
+      initialEntries: [`/${THREAD_ID}`],
+    });
+
+    try {
+      await waitForElement(
+        () => queryProjectButton("Project"),
+        "Project button should render before triggering chat.newLocal.",
+      );
+      await dispatchNewThreadShortcut("chat.newLocal");
+
+      const firstPath = await waitForPath(
+        mounted.router,
+        (pathname) => UUID_ROUTE_RE.test(pathname),
+        "chat.newLocal should navigate to a draft thread route.",
+      );
+      await dispatchNewThreadShortcut("chat.newLocal");
+      const secondPath = await waitForPath(
+        mounted.router,
+        (pathname) => pathname === firstPath,
+        "chat.newLocal should reuse the same draft for the project.",
+      );
+      const draftThread = useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID);
+
+      expect(secondPath).toBe(firstPath);
+      expect(draftThread?.branch).toBeNull();
+      expect(draftThread?.worktreePath).toBeNull();
+      expect(querySidebarThreadRowsByTitle("New thread")).toHaveLength(1);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps a project draft visible in the collapsed preview when it would normally be truncated", async () => {
+    const previewThreads = Array.from({ length: 8 }, (_, index) =>
+      createSnapshotThread({
+        id: `preview-thread-${index}` as ThreadId,
+        title: `Preview thread ${index}`,
+        createdAt: `2026-03-11T12:0${index}:00.000Z`,
+        lastInteractionAt: `2026-03-11T12:0${index}:00.000Z`,
+        updatedAt: `2026-03-11T12:0${index}:00.000Z`,
+      }),
+    ).toReversed();
+    const draftThreadId = "preview-draft-thread" as ThreadId;
+    useComposerDraftStore.setState({
+      draftsByThreadId: {},
+      draftThreadsByThreadId: {
+        [draftThreadId]: {
+          projectId: PROJECT_ID,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: draftThreadId,
+      },
+    });
+
+    const mounted = await mountApp({
+      width: 1_400,
+      initialEntries: [`/${previewThreads[0]!.id}`],
+      configureFixture: (nextFixture) => {
+        nextFixture.snapshot = createSnapshot(previewThreads);
+        nextFixture.welcome = {
+          ...nextFixture.welcome,
+          bootstrapThreadId: previewThreads[0]!.id,
+        };
+      },
+    });
+
+    try {
+      await waitForSidebarThreadRow("New thread");
+      expect(querySidebarThreadRowByTitle("Preview thread 3")).toBeTruthy();
+      expect(querySidebarThreadRowByTitle("Preview thread 2")).toBeNull();
+      expect(querySidebarThreadRowByTitle("Preview thread 1")).toBeNull();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps a draft row visible after navigating away within the same project", async () => {
+    const mounted = await mountApp({
+      width: 1_400,
+      initialEntries: [`/${THREAD_ID}`],
+    });
+
+    try {
+      await page.getByTestId("new-thread-button").click();
+      await waitForPath(
+        mounted.router,
+        (pathname) => UUID_ROUTE_RE.test(pathname),
+        "Route should switch to the draft thread after opening it.",
+      );
+
+      const persistedThreadRow = await waitForSidebarThreadRow(LONG_THREAD_TITLE);
+      persistedThreadRow.click();
+
+      await waitForPath(
+        mounted.router,
+        (pathname) => pathname === `/${THREAD_ID}`,
+        "Route should switch back to the persisted thread.",
+      );
+      expect(querySidebarThreadRowsByTitle("New thread")).toHaveLength(1);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("hydrates a persisted draft row from local storage", async () => {
+    const draftThreadId = "persisted-sidebar-draft" as ThreadId;
+    seedPersistedDraftStorage(draftThreadId);
+    await useComposerDraftStore.persist.rehydrate();
+
+    const mounted = await mountApp({
+      width: 1_400,
+      initialEntries: [`/${THREAD_ID}`],
+    });
+
+    try {
+      await waitForSidebarThreadRow("New thread");
+      expect(useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID)?.threadId).toBe(
+        draftThreadId,
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("avoids duplicate sidebar rows when a draft is promoted to a persisted thread", async () => {
+    const mounted = await mountApp({
+      width: 1_400,
+      initialEntries: [`/${THREAD_ID}`],
+    });
+
+    try {
+      await page.getByTestId("new-thread-button").click();
+      const draftPath = await waitForPath(
+        mounted.router,
+        (pathname) => UUID_ROUTE_RE.test(pathname),
+        "Route should switch to the draft thread after opening it.",
+      );
+      const draftThreadId = draftPath.slice(1) as ThreadId;
+
+      expect(querySidebarThreadRowsByTitle("New thread")).toHaveLength(1);
+
+      useStore.getState().syncServerReadModel(addThreadToSnapshot(fixture.snapshot, draftThreadId));
+      useComposerDraftStore.getState().clearDraftThread(draftThreadId);
+      await waitForLayout();
+
+      expect(mounted.router.state.location.pathname).toBe(draftPath);
+      expect(querySidebarThreadRowsByTitle("New thread")).toHaveLength(1);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("treats modifier clicks on draft rows like plain focus instead of multi-select", async () => {
+    const mounted = await mountApp({
+      width: 1_400,
+      initialEntries: [`/${THREAD_ID}`],
+    });
+
+    try {
+      await page.getByTestId("new-thread-button").click();
+      const draftPath = await waitForPath(
+        mounted.router,
+        (pathname) => UUID_ROUTE_RE.test(pathname),
+        "Route should switch to the draft thread after opening it.",
+      );
+      const persistedThreadRow = await waitForSidebarThreadRow(LONG_THREAD_TITLE);
+      const draftThreadRow = await waitForSidebarThreadRow("New thread");
+
+      persistedThreadRow.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          ctrlKey: true,
+          metaKey: true,
+        }),
+      );
+      await waitForLayout();
+      expect(useThreadSelectionStore.getState().selectedThreadIds).toEqual(new Set([THREAD_ID]));
+
+      draftThreadRow.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          ctrlKey: true,
+          metaKey: true,
+        }),
+      );
+      await waitForLayout();
+      expect(mounted.router.state.location.pathname).toBe(draftPath);
+      expect(useThreadSelectionStore.getState().selectedThreadIds.size).toBe(0);
+      expect(useThreadSelectionStore.getState().anchorThreadId).toBeNull();
+
+      persistedThreadRow.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          ctrlKey: true,
+          metaKey: true,
+        }),
+      );
+      await waitForLayout();
+      expect(useThreadSelectionStore.getState().selectedThreadIds).toEqual(new Set([THREAD_ID]));
+
+      draftThreadRow.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          shiftKey: true,
+        }),
+      );
+      await waitForLayout();
+      expect(mounted.router.state.location.pathname).toBe(draftPath);
+      expect(useThreadSelectionStore.getState().selectedThreadIds.size).toBe(0);
+      expect(useThreadSelectionStore.getState().anchorThreadId).toBeNull();
+    } finally {
+      await mounted.cleanup();
     }
   });
 });
