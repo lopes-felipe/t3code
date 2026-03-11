@@ -17,8 +17,9 @@ export default mergeConfig(
     test: {
       include: [
         "src/components/ChatView.browser.tsx",
-        "src/components/KeybindingsToast.browser.tsx",
+        "src/components/ThreadSidebar.browser.tsx",
         "src/components/ThreadStatusNotificationController.browser.tsx",
+        "src/components/KeybindingsToast.browser.tsx",
       ],
       browser: {
         enabled: true,

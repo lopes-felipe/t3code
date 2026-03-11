@@ -1,7 +1,7 @@
 import { type ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useState, type CSSProperties } from "react";
 
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
 import ThreadStatusNotificationController from "../components/ThreadStatusNotificationController";
@@ -13,9 +13,17 @@ import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { resolveShortcutCommand } from "../keybindings";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import { Sidebar, SidebarProvider } from "~/components/ui/sidebar";
+import { Sidebar, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
 import { useAppSettings } from "~/appSettings";
+import {
+  canAcceptThreadSidebarWidth,
+  readInitialThreadSidebarWidth,
+  resolveAcceptedThreadSidebarWidth,
+  THREAD_SIDEBAR_MAX_WIDTH_PX,
+  THREAD_SIDEBAR_MIN_WIDTH_PX,
+  THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+} from "../threadSidebarWidth";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 
@@ -95,6 +103,31 @@ function ChatRouteGlobalShortcuts() {
 
 function ChatRouteLayout() {
   const navigate = useNavigate();
+  const [initialThreadSidebarWidth, setInitialThreadSidebarWidth] = useState(() =>
+    readInitialThreadSidebarWidth(),
+  );
+
+  useLayoutEffect(() => {
+    const wrapper = document.querySelector<HTMLElement>("[data-thread-sidebar-layout='true']");
+    if (!wrapper) {
+      return;
+    }
+
+    const acceptedWidth = resolveAcceptedThreadSidebarWidth({
+      preferredWidth: initialThreadSidebarWidth,
+      wrapper,
+    });
+    if (acceptedWidth === initialThreadSidebarWidth) {
+      return;
+    }
+
+    setInitialThreadSidebarWidth(acceptedWidth);
+    try {
+      window.localStorage.setItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY, String(acceptedWidth));
+    } catch {
+      // Ignore storage failures to avoid blocking the initial render path.
+    }
+  }, [initialThreadSidebarWidth]);
 
   useEffect(() => {
     const onMenuAction = window.desktopBridge?.onMenuAction;
@@ -113,14 +146,25 @@ function ChatRouteLayout() {
   }, [navigate]);
 
   return (
-    <SidebarProvider defaultOpen>
+    <SidebarProvider
+      defaultOpen
+      data-thread-sidebar-layout="true"
+      style={{ "--sidebar-width": `${initialThreadSidebarWidth}px` } as CSSProperties}
+    >
       <ChatRouteGlobalShortcuts />
       <Sidebar
         side="left"
         collapsible="offcanvas"
         className="border-r border-border bg-card text-foreground"
+        resizable={{
+          storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+          minWidth: THREAD_SIDEBAR_MIN_WIDTH_PX,
+          maxWidth: THREAD_SIDEBAR_MAX_WIDTH_PX,
+          shouldAcceptWidth: canAcceptThreadSidebarWidth,
+        }}
       >
         <ThreadSidebar />
+        <SidebarRail />
       </Sidebar>
       <DiffWorkerPoolProvider>
         <ThreadRecencyController />

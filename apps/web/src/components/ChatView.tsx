@@ -73,7 +73,7 @@ import {
   proposedPlanTitle,
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
-import { truncateTitle } from "../truncateTitle";
+import { buildNewThreadTitle, normalizeGeneratedThreadTitle } from "../threadTitle";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -2343,15 +2343,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
           firstComposerImageName = firstComposerImage.name;
         }
       }
-      let titleSeed = trimmed;
-      if (!titleSeed) {
-        if (firstComposerImageName) {
-          titleSeed = `Image: ${firstComposerImageName}`;
-        } else {
-          titleSeed = "New thread";
-        }
-      }
-      const title = truncateTitle(titleSeed);
+      const title = buildNewThreadTitle({
+        draftText: trimmed,
+        firstImageName: firstComposerImageName,
+      });
       let threadCreateModel: ModelSlug =
         selectedModel || (activeProject.model as ModelSlug) || DEFAULT_MODEL_BY_PROVIDER.codex;
 
@@ -2778,7 +2773,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const nextThreadId = newThreadId();
     const planMarkdown = activeProposedPlan.planMarkdown;
     const implementationPrompt = buildPlanImplementationPrompt(planMarkdown);
-    const nextThreadTitle = truncateTitle(buildPlanImplementationThreadTitle(planMarkdown));
+    const nextThreadTitle = normalizeGeneratedThreadTitle(
+      buildPlanImplementationThreadTitle(planMarkdown),
+    );
     const nextThreadModel: ModelSlug =
       selectedModel ||
       (activeThread.model as ModelSlug) ||
