@@ -834,8 +834,7 @@ describe("WebSocket Server", () => {
     });
     expect(
       (response.result as { keybindings: ResolvedKeybindingsConfig }).keybindings.some(
-        (entry) =>
-          entry.command === "thread.switchRecentNext" && entry.shortcut.key === "tab",
+        (entry) => entry.command === "thread.switchRecentNext" && entry.shortcut.key === "tab",
       ),
     ).toBe(true);
     expect(

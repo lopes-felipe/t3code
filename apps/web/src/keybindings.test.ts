@@ -103,7 +103,10 @@ const DEFAULT_BINDINGS = compile([
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
-  { shortcut: { ...modShortcut("tab"), modKey: false, ctrlKey: true }, command: "thread.switchRecentNext" },
+  {
+    shortcut: { ...modShortcut("tab"), modKey: false, ctrlKey: true },
+    command: "thread.switchRecentNext",
+  },
   {
     shortcut: { ...modShortcut("tab"), modKey: false, ctrlKey: true, shiftKey: true },
     command: "thread.switchRecentPrevious",
@@ -268,11 +271,9 @@ describe("chat/editor shortcuts", () => {
 
   it("matches recent thread switching shortcuts", () => {
     assert.isTrue(
-      isThreadSwitchRecentNextShortcut(
-        event({ key: "Tab", ctrlKey: true }),
-        DEFAULT_BINDINGS,
-        { platform: "Linux" },
-      ),
+      isThreadSwitchRecentNextShortcut(event({ key: "Tab", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+      }),
     );
     assert.isTrue(
       isThreadSwitchRecentPreviousShortcut(
@@ -468,24 +469,16 @@ describe("resolveShortcutCommand", () => {
     ]);
 
     assert.isTrue(
-      isThreadSwitchRecentNextShortcut(
-        event({ key: "Tab", ctrlKey: true }),
-        keybindings,
-        {
-          platform: "Linux",
-          context: { terminalFocus: true },
-        },
-      ),
+      isThreadSwitchRecentNextShortcut(event({ key: "Tab", ctrlKey: true }), keybindings, {
+        platform: "Linux",
+        context: { terminalFocus: true },
+      }),
     );
     assert.isFalse(
-      isThreadSwitchRecentNextShortcut(
-        event({ key: "Tab", ctrlKey: true }),
-        keybindings,
-        {
-          platform: "Linux",
-          context: { terminalFocus: false },
-        },
-      ),
+      isThreadSwitchRecentNextShortcut(event({ key: "Tab", ctrlKey: true }), keybindings, {
+        platform: "Linux",
+        context: { terminalFocus: false },
+      }),
     );
   });
 });

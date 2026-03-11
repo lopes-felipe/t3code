@@ -1,5 +1,9 @@
 import type { ProjectId, ThreadId } from "@t3tools/contracts";
-import { type ThreadStatusPill, hasUnseenCompletion, resolveThreadStatusPill } from "../threadStatus";
+import {
+  type ThreadStatusPill,
+  hasUnseenCompletion,
+  resolveThreadStatusPill,
+} from "../threadStatus";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export type SidebarThreadBucket = "active" | "archived";

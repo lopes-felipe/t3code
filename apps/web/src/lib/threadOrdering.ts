@@ -20,9 +20,7 @@ export function isArchivedThread(thread: Pick<Thread, "archivedAt">): boolean {
   return thread.archivedAt !== null;
 }
 
-export function partitionThreadsByArchive(
-  threads: ReadonlyArray<Thread>,
-): {
+export function partitionThreadsByArchive(threads: ReadonlyArray<Thread>): {
   readonly activeThreads: Thread[];
   readonly archivedThreads: Thread[];
 } {

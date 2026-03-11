@@ -9,8 +9,7 @@ import type { Thread } from "../types";
 import { ThreadStatusNotificationControllerContent } from "./ThreadStatusNotificationController";
 
 const APP_SETTINGS_STORAGE_KEY = "t3code:app-settings:v1";
-const THREAD_STATUS_NOTIFICATION_PROMPT_STORAGE_KEY =
-  "t3code:thread-status-notification-prompt:v1";
+const THREAD_STATUS_NOTIFICATION_PROMPT_STORAGE_KEY = "t3code:thread-status-notification-prompt:v1";
 const PROJECT_ID = "project-browser" as ProjectId;
 const THREAD_ID = "thread-browser" as ThreadId;
 
@@ -256,7 +255,9 @@ describe("ThreadStatusNotificationController", () => {
       await vi.waitFor(() => {
         expect(MockNotification.instances).toHaveLength(1);
         expect(MockNotification.instances[0]?.title).toBe("Pending Approval");
-        expect(MockNotification.instances[0]?.options?.body).toBe("Repo · Audit status transitions");
+        expect(MockNotification.instances[0]?.options?.body).toBe(
+          "Repo · Audit status transitions",
+        );
       });
     } finally {
       await mounted.cleanup();
