@@ -541,7 +541,9 @@ function SidebarRail({
     const wrapper = rail.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
     if (!wrapper) return;
 
-    const storedWidth = Number(window.localStorage.getItem(resolvedResizable.storageKey));
+    const storedWidthValue = window.localStorage.getItem(resolvedResizable.storageKey);
+    const storedWidth =
+      storedWidthValue === null ? Number.NaN : Number.parseFloat(storedWidthValue);
     if (!Number.isFinite(storedWidth)) return;
     const clampedWidth = clampSidebarWidth(storedWidth, resolvedResizable);
     wrapper.style.setProperty("--sidebar-width", `${clampedWidth}px`);
