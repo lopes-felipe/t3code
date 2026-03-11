@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { ProjectId, ThreadId } from "@t3tools/contracts";
 
-import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Project, type Thread } from "../types";
+import {
+  DEFAULT_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  type Project,
+  type Thread,
+} from "../types";
 import {
   getMostRecentThreadForProject,
   sortProjectsByActivity,

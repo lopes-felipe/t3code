@@ -53,10 +53,7 @@ function orderedUniqueThreadIds(threadIds: ReadonlyArray<ThreadId>): ThreadId[] 
 
 function hasHeldModifiers(heldModifiers: ThreadRecencyHeldModifiers): boolean {
   return (
-    heldModifiers.ctrlKey ||
-    heldModifiers.metaKey ||
-    heldModifiers.altKey ||
-    heldModifiers.shiftKey
+    heldModifiers.ctrlKey || heldModifiers.metaKey || heldModifiers.altKey || heldModifiers.shiftKey
   );
 }
 
@@ -80,7 +77,10 @@ function sameThreadIds(left: ReadonlyArray<ThreadId>, right: ReadonlyArray<Threa
   return true;
 }
 
-function sameActiveCycle(left: ThreadRecencyCycle | null, right: ThreadRecencyCycle | null): boolean {
+function sameActiveCycle(
+  left: ThreadRecencyCycle | null,
+  right: ThreadRecencyCycle | null,
+): boolean {
   if (left === right) return true;
   if (!left || !right) return false;
   return (
@@ -96,9 +96,7 @@ function cycleIndexForDirection(
   length: number,
 ): number {
   if (length === 0) return -1;
-  return direction === "next"
-    ? (currentIndex + 1) % length
-    : (currentIndex - 1 + length) % length;
+  return direction === "next" ? (currentIndex + 1) % length : (currentIndex - 1 + length) % length;
 }
 
 function requiredHeldModifiers(
@@ -135,7 +133,10 @@ export function recordThreadVisit(
   state: ThreadRecencyState,
   threadId: ThreadId,
 ): ThreadRecencyState {
-  const recentThreadIds = [threadId, ...state.recentThreadIds.filter((entry) => entry !== threadId)];
+  const recentThreadIds = [
+    threadId,
+    ...state.recentThreadIds.filter((entry) => entry !== threadId),
+  ];
   return sameThreadIds(recentThreadIds, state.recentThreadIds)
     ? state
     : { ...state, recentThreadIds };
@@ -177,7 +178,10 @@ export function pruneRecentThreads(
     }
   }
 
-  if (sameThreadIds(recentThreadIds, state.recentThreadIds) && sameActiveCycle(activeCycle, state.activeCycle)) {
+  if (
+    sameThreadIds(recentThreadIds, state.recentThreadIds) &&
+    sameActiveCycle(activeCycle, state.activeCycle)
+  ) {
     return state;
   }
 
@@ -188,7 +192,11 @@ export function beginCycle(
   state: ThreadRecencyState,
   options: BeginCycleOptions,
 ): ThreadRecencyTransition {
-  const order = buildCycleOrder(state.recentThreadIds, options.eligibleThreadIds, options.activeThreadId);
+  const order = buildCycleOrder(
+    state.recentThreadIds,
+    options.eligibleThreadIds,
+    options.activeThreadId,
+  );
   const heldModifiers = requiredHeldModifiers(options.shortcut, options.platform);
 
   if (options.activeThreadId) {

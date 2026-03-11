@@ -161,6 +161,8 @@ describe("decider project scripts", () => {
           },
           provider: "codex",
           model: "gpt-5.3-codex",
+          titleGenerationModel: "gpt-5.3-codex",
+          titleSourceText: "",
           modelOptions: {
             codex: {
               reasoningEffort: "high",
@@ -191,6 +193,8 @@ describe("decider project scripts", () => {
       messageId: asMessageId("message-user-1"),
       provider: "codex",
       model: "gpt-5.3-codex",
+      titleGenerationModel: "gpt-5.3-codex",
+      titleSourceText: "",
       modelOptions: {
         codex: {
           reasoningEffort: "high",

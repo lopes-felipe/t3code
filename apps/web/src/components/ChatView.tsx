@@ -1,6 +1,8 @@
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_NEW_THREAD_TITLE,
+  DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER,
   EDITORS,
   type EditorId,
   type KeybindingCommand,
@@ -99,7 +101,7 @@ import {
   resolvePlanFollowUpSubmission,
   stripDisplayedPlanMarkdown,
 } from "../proposedPlan";
-import { buildNewThreadTitle, normalizeGeneratedThreadTitle } from "../threadTitle";
+import { normalizeGeneratedThreadTitle } from "../threadTitle";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -204,7 +206,12 @@ import { Toggle } from "./ui/toggle";
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import { getAppModelOptions, resolveAppModelSelection, useAppSettings } from "../appSettings";
+import {
+  getAppModelOptions,
+  resolveAppModelSelection,
+  resolveAuxiliaryAppModelSelection,
+  useAppSettings,
+} from "../appSettings";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -894,6 +901,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
       draftModel,
     ) as ModelSlug;
   }, [baseThreadModel, composerDraft.model, customModelsForSelectedProvider, selectedProvider]);
+  const selectedThreadTitleModel = useMemo(
+    () =>
+      resolveAuxiliaryAppModelSelection(
+        "codex",
+        settings.customCodexModels,
+        settings.codexThreadTitleModel,
+        DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex,
+      ),
+    [settings.codexThreadTitleModel, settings.customCodexModels],
+  );
   const reasoningOptions = getReasoningEffortOptions(selectedProvider);
   const supportsReasoningEffort = reasoningOptions.length > 0;
   const selectedEffort = composerDraft.effort ?? getDefaultReasoningEffort(selectedProvider);
@@ -2682,17 +2699,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
         }
       }
 
-      let firstComposerImageName: string | null = null;
-      if (composerImagesSnapshot.length > 0) {
-        const firstComposerImage = composerImagesSnapshot[0];
-        if (firstComposerImage) {
-          firstComposerImageName = firstComposerImage.name;
-        }
-      }
-      const title = buildNewThreadTitle({
-        draftText: trimmed,
-        firstImageName: firstComposerImageName,
-      });
       let threadCreateModel: ModelSlug =
         selectedModel || (activeProject.model as ModelSlug) || DEFAULT_MODEL_BY_PROVIDER.codex;
 
@@ -2702,7 +2708,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           commandId: newCommandId(),
           threadId: threadIdForSend,
           projectId: activeProject.id,
-          title,
+          title: DEFAULT_NEW_THREAD_TITLE,
           model: threadCreateModel,
           runtimeMode,
           interactionMode,
@@ -2739,16 +2745,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
         }
       }
 
-      // Auto-title from first message
-      if (isFirstMessage && isServerThread) {
-        await api.orchestration.dispatchCommand({
-          type: "thread.meta.update",
-          commandId: newCommandId(),
-          threadId: threadIdForSend,
-          title,
-        });
-      }
-
       if (isServerThread) {
         await persistThreadSettingsForNextTurn({
           threadId: threadIdForSend,
@@ -2772,6 +2768,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
           attachments: turnAttachments,
         },
         model: selectedModel || undefined,
+        titleGenerationModel: selectedThreadTitleModel,
+        titleSourceText: trimmed,
         ...(selectedModelOptionsForDispatch
           ? { modelOptions: selectedModelOptionsForDispatch }
           : {}),
@@ -3047,6 +3045,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
           },
           provider: selectedProvider,
           model: selectedModel || undefined,
+          titleGenerationModel: selectedThreadTitleModel,
+          titleSourceText: trimmed,
           ...(selectedModelOptionsForDispatch
             ? { modelOptions: selectedModelOptionsForDispatch }
             : {}),
@@ -3087,6 +3087,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       resetSendPhase,
       runtimeMode,
       selectedModel,
+      selectedThreadTitleModel,
       selectedModelOptionsForDispatch,
       providerOptionsForDispatch,
       selectedProvider,
@@ -3158,6 +3159,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
           },
           provider: selectedProvider,
           model: selectedModel || undefined,
+          titleGenerationModel: selectedThreadTitleModel,
+          titleSourceText: implementationPrompt,
           ...(selectedModelOptionsForDispatch
             ? { modelOptions: selectedModelOptionsForDispatch }
             : {}),
@@ -3212,6 +3215,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     resetSendPhase,
     runtimeMode,
     selectedModel,
+    selectedThreadTitleModel,
     selectedModelOptionsForDispatch,
     providerOptionsForDispatch,
     selectedProvider,

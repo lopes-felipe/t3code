@@ -1,8 +1,11 @@
 import {
   type ChatAttachment,
   CommandId,
+  DEFAULT_NEW_THREAD_TITLE,
+  DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER,
   EventId,
   type OrchestrationEvent,
+  type OrchestrationThread,
   type ProviderModelOptions,
   type ProviderKind,
   type ProviderStartOptions,
@@ -18,6 +21,7 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
+import { buildFallbackThreadTitle } from "../../threadTitle.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -73,6 +77,15 @@ const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const WORKTREE_BRANCH_PREFIX = "t3code";
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
+
+function hasEligibleFirstUserMessage(thread: OrchestrationThread, messageId: string): boolean {
+  const userMessages = thread.messages.filter((message) => message.role === "user");
+  return (
+    thread.title === DEFAULT_NEW_THREAD_TITLE &&
+    userMessages.length === 1 &&
+    userMessages[0]?.id === messageId
+  );
+}
 
 function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
   const error = Cause.squash(cause);
@@ -186,6 +199,11 @@ const make = Effect.gen(function* () {
   const resolveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
     const readModel = yield* orchestrationEngine.getReadModel();
     return readModel.threads.find((entry) => entry.id === threadId);
+  });
+
+  const resolveActiveThread = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const thread = yield* resolveThread(threadId);
+    return thread?.deletedAt === null ? thread : null;
   });
 
   const ensureSessionForThread = Effect.fnUntraced(function* (
@@ -426,6 +444,92 @@ const make = Effect.gen(function* () {
       );
   });
 
+  const maybeGenerateThreadTitleForFirstTurn = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly messageId: string;
+    readonly titleSourceText: string;
+    readonly titleGenerationModel?: string;
+    readonly attachments?: ReadonlyArray<ChatAttachment>;
+  }) {
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const currentThread = readModel.threads.find(
+      (entry) => entry.id === input.threadId && entry.deletedAt === null,
+    );
+    if (!currentThread || !hasEligibleFirstUserMessage(currentThread, input.messageId)) {
+      return;
+    }
+
+    const cwd = resolveThreadWorkspaceCwd({
+      thread: currentThread,
+      projects: readModel.projects,
+    });
+    const attachments = input.attachments ?? [];
+    const applyTitleIfEligible = (title: string) =>
+      Effect.gen(function* () {
+        const nextThread = yield* resolveActiveThread(input.threadId);
+        if (!nextThread || !hasEligibleFirstUserMessage(nextThread, input.messageId)) {
+          return;
+        }
+
+        if (title === DEFAULT_NEW_THREAD_TITLE) {
+          return;
+        }
+
+        yield* orchestrationEngine.dispatch({
+          type: "thread.meta.update",
+          commandId: serverCommandId("thread-title-generate"),
+          threadId: input.threadId,
+          title,
+        });
+      });
+
+    if (!cwd) {
+      yield* Effect.logWarning(
+        "provider command reactor could not resolve cwd for thread title generation; applying fallback title",
+        {
+          threadId: input.threadId,
+        },
+      );
+      yield* applyTitleIfEligible(
+        buildFallbackThreadTitle({
+          titleSourceText: input.titleSourceText,
+          attachments,
+        }),
+      );
+      return;
+    }
+
+    const generatedResult = yield* Effect.exit(
+      textGeneration.generateThreadTitle({
+        cwd,
+        message: input.titleSourceText,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        model: input.titleGenerationModel ?? DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex,
+      }),
+    );
+
+    if (generatedResult._tag === "Success") {
+      yield* applyTitleIfEligible(generatedResult.value.title);
+      return;
+    }
+
+    yield* Effect.logWarning(
+      "provider command reactor failed to generate thread title; applying fallback title",
+      {
+        threadId: input.threadId,
+        cwd,
+        reason: Cause.pretty(generatedResult.cause),
+      },
+    );
+
+    yield* applyTitleIfEligible(
+      buildFallbackThreadTitle({
+        titleSourceText: input.titleSourceText,
+        attachments,
+      }),
+    );
+  });
+
   const processTurnStartRequested = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
   ) {
@@ -460,6 +564,27 @@ const make = Effect.gen(function* () {
       messageText: message.text,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
     }).pipe(Effect.forkScoped);
+
+    yield* maybeGenerateThreadTitleForFirstTurn({
+      threadId: event.payload.threadId,
+      messageId: message.id,
+      titleSourceText:
+        event.payload.titleSourceText !== undefined ? event.payload.titleSourceText : message.text,
+      ...(event.payload.titleGenerationModel !== undefined
+        ? { titleGenerationModel: event.payload.titleGenerationModel }
+        : {}),
+      ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.logError("provider command reactor hit an unexpected thread title error", {
+              threadId: event.payload.threadId,
+              cause: Cause.pretty(cause),
+            }),
+      ),
+      Effect.forkScoped,
+    );
 
     yield* sendTurnForThread({
       threadId: event.payload.threadId,
