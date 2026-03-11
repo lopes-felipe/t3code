@@ -445,6 +445,156 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
     ),
   );
 
+  it.effect("generates and sanitizes thread titles", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          title: '  "Fix sidebar sizing."\nIgnored second line',
+        }),
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateThreadTitle({
+          cwd: process.cwd(),
+          message: "Fix the sidebar sizing regression in the desktop layout.",
+          model: "gpt-5.3-codex",
+        });
+
+        expect(generated.title).toBe("Fix sidebar sizing");
+      }),
+    ),
+  );
+
+  it.effect("includes image attachments when generating thread titles", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          title: "Fix visual regression",
+        }),
+        requireImage: true,
+        stdinMustContain: "Attachment metadata:",
+      },
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const attachmentId = `thread-title-image-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        const attachmentPath = path.join(process.cwd(), "attachments", `${attachmentId}.png`);
+        yield* fs.makeDirectory(path.join(process.cwd(), "attachments"), { recursive: true });
+        yield* fs.writeFile(attachmentPath, Buffer.from("hello"));
+
+        const textGeneration = yield* TextGeneration;
+        const generated = yield* textGeneration
+          .generateThreadTitle({
+            cwd: process.cwd(),
+            message: "",
+            attachments: [
+              {
+                type: "image",
+                id: attachmentId,
+                name: "bug.png",
+                mimeType: "image/png",
+                sizeBytes: 5,
+              },
+            ],
+            model: "gpt-5.3-codex",
+          })
+          .pipe(Effect.ensuring(fs.remove(attachmentPath).pipe(Effect.catch(() => Effect.void))));
+
+        expect(generated.title).toBe("Fix visual regression");
+      }),
+    ),
+  );
+
+  it.effect("truncates long thread-title prompts before sending them to codex", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          title: "Trimmed prompt title",
+        }),
+        stdinMustContain: "prefix",
+        stdinMustNotContain: "forbidden-tail",
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const generated = yield* textGeneration.generateThreadTitle({
+          cwd: process.cwd(),
+          message: `${"prefix ".repeat(1500)}forbidden-tail`,
+          model: "gpt-5.3-codex",
+        });
+
+        expect(generated.title).toBe("Trimmed prompt title");
+      }),
+    ),
+  );
+
+  it.effect(
+    "fails with typed TextGenerationError when codex returns wrong thread-title payload shape",
+    () =>
+      withFakeCodexEnv(
+        {
+          output: JSON.stringify({
+            branch: "not-a-title",
+          }),
+        },
+        Effect.gen(function* () {
+          const textGeneration = yield* TextGeneration;
+
+          const result = yield* textGeneration
+            .generateThreadTitle({
+              cwd: process.cwd(),
+              message: "Fix websocket reconnect flake",
+              model: "gpt-5.3-codex",
+            })
+            .pipe(
+              Effect.match({
+                onFailure: (error) => ({ _tag: "Left" as const, left: error }),
+                onSuccess: (value) => ({ _tag: "Right" as const, right: value }),
+              }),
+            );
+
+          expect(result._tag).toBe("Left");
+          if (result._tag === "Left") {
+            expect(result.left).toBeInstanceOf(TextGenerationError);
+            expect(result.left.message).toContain("Codex returned invalid structured output");
+          }
+        }),
+      ),
+  );
+
+  it.effect("fails when the generated thread title sanitizes to empty", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({
+          title: "...",
+        }),
+      },
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+
+        const result = yield* textGeneration
+          .generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Fix websocket reconnect flake",
+            model: "gpt-5.3-codex",
+          })
+          .pipe(
+            Effect.match({
+              onFailure: (error) => ({ _tag: "Left" as const, left: error }),
+              onSuccess: (value) => ({ _tag: "Right" as const, right: value }),
+            }),
+          );
+
+        expect(result._tag).toBe("Left");
+        if (result._tag === "Left") {
+          expect(result.left).toBeInstanceOf(TextGenerationError);
+          expect(result.left.message).toContain("Codex returned an empty thread title");
+        }
+      }),
+    ),
+  );
+
   it.effect(
     "fails with typed TextGenerationError when codex returns wrong branch payload shape",
     () =>

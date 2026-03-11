@@ -38,6 +38,10 @@ export const DEFAULT_MODEL_BY_PROVIDER = {
   codex: "gpt-5.4",
 } as const satisfies Record<ProviderKind, ModelSlug>;
 
+export const DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER = {
+  codex: "gpt-5.3-codex",
+} as const satisfies Record<ProviderKind, ModelSlug>;
+
 export const MODEL_SLUG_ALIASES_BY_PROVIDER = {
   codex: {
     "5.4": "gpt-5.4",

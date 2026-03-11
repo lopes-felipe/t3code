@@ -7,12 +7,14 @@ import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shar
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import { sanitizeThreadTitle } from "../../threadTitle.ts";
 import { TextGenerationError } from "../Errors.ts";
 import {
   type BranchNameGenerationInput,
   type BranchNameGenerationResult,
   type CommitMessageGenerationResult,
   type PrContentGenerationResult,
+  type ThreadTitleGenerationResult,
   type TextGenerationShape,
   TextGeneration,
 } from "../Services/TextGeneration.ts";
@@ -148,7 +150,11 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     fileSystem.remove(filePath).pipe(Effect.catch(() => Effect.void));
 
   const materializeImageAttachments = (
-    _operation: "generateCommitMessage" | "generatePrContent" | "generateBranchName",
+    _operation:
+      | "generateCommitMessage"
+      | "generatePrContent"
+      | "generateBranchName"
+      | "generateThreadTitle",
     attachments: BranchNameGenerationInput["attachments"],
   ): Effect.Effect<MaterializedImageAttachments, TextGenerationError> =>
     Effect.gen(function* () {
@@ -185,13 +191,19 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     cwd,
     prompt,
     outputSchemaJson,
+    model = CODEX_MODEL,
     imagePaths = [],
     cleanupPaths = [],
   }: {
-    operation: "generateCommitMessage" | "generatePrContent" | "generateBranchName";
+    operation:
+      | "generateCommitMessage"
+      | "generatePrContent"
+      | "generateBranchName"
+      | "generateThreadTitle";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
+    model?: string;
     imagePaths?: ReadonlyArray<string>;
     cleanupPaths?: ReadonlyArray<string>;
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
@@ -212,7 +224,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             "-s",
             "read-only",
             "--model",
-            CODEX_MODEL,
+            model,
             "--config",
             `model_reasoning_effort="${CODEX_REASONING_EFFORT}"`,
             "--output-schema",
@@ -457,10 +469,68 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     });
   };
 
+  const generateThreadTitle: TextGenerationShape["generateThreadTitle"] = (input) =>
+    Effect.gen(function* () {
+      const { imagePaths } = yield* materializeImageAttachments(
+        "generateThreadTitle",
+        input.attachments,
+      );
+      const attachmentLines = (input.attachments ?? []).map(
+        (attachment) =>
+          `- ${attachment.name} (${attachment.mimeType}, ${attachment.sizeBytes} bytes)`,
+      );
+
+      const promptSections = [
+        "You generate concise thread titles.",
+        "Return a JSON object with key: title.",
+        "Rules:",
+        "- Title must be a short one-line thread title.",
+        "- Prefer 2-6 words.",
+        "- Describe the user's requested task, not the assistant response.",
+        "- No markdown.",
+        "- No quotes.",
+        "- No trailing punctuation.",
+        "- Be specific, but do not copy the full prompt verbatim.",
+        "- If images are attached, use them as primary context for visual or UI issues.",
+        "",
+        "User message:",
+        limitSection(input.message, 8_000),
+      ];
+      if (attachmentLines.length > 0) {
+        promptSections.push(
+          "",
+          "Attachment metadata:",
+          limitSection(attachmentLines.join("\n"), 4_000),
+        );
+      }
+
+      const generated = yield* runCodexJson({
+        operation: "generateThreadTitle",
+        cwd: input.cwd,
+        prompt: promptSections.join("\n"),
+        outputSchemaJson: Schema.Struct({
+          title: Schema.String,
+        }),
+        model: input.model,
+        imagePaths,
+      });
+
+      const title = sanitizeThreadTitle(generated.title);
+      if (!title) {
+        return yield* new TextGenerationError({
+          operation: "generateThreadTitle",
+          detail: "Codex returned an empty thread title.",
+        });
+      }
+
+      return { title } satisfies ThreadTitleGenerationResult;
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
+    generateThreadTitle,
   } satisfies TextGenerationShape;
 });
 

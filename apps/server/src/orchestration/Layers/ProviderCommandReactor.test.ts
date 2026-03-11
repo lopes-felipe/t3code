@@ -6,6 +6,8 @@ import type { ProviderRuntimeEvent, ProviderSession } from "@t3tools/contracts";
 import {
   ApprovalRequestId,
   CommandId,
+  DEFAULT_NEW_THREAD_TITLE,
+  DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
@@ -83,7 +85,10 @@ describe("ProviderCommandReactor", () => {
     createdStateDirs.clear();
   });
 
-  async function createHarness(input?: { readonly stateDir?: string }) {
+  async function createHarness(input?: {
+    readonly stateDir?: string;
+    readonly threadTitle?: string;
+  }) {
     const now = new Date().toISOString();
     const stateDir = input?.stateDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "t3code-reactor-"));
     createdStateDirs.add(stateDir);
@@ -179,6 +184,14 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
     );
+    const generateThreadTitle = vi.fn<TextGenerationShape["generateThreadTitle"]>(() =>
+      Effect.fail(
+        new TextGenerationError({
+          operation: "generateThreadTitle",
+          detail: "disabled in test harness",
+        }),
+      ),
+    );
 
     const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
     const service: ProviderServiceShape = {
@@ -208,7 +221,10 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
       Layer.provideMerge(Layer.succeed(GitCore, { renameBranch } as unknown as GitCoreShape)),
       Layer.provideMerge(
-        Layer.succeed(TextGeneration, { generateBranchName } as unknown as TextGenerationShape),
+        Layer.succeed(TextGeneration, {
+          generateBranchName,
+          generateThreadTitle,
+        } as unknown as TextGenerationShape),
       ),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), stateDir)),
       Layer.provideMerge(NodeServices.layer),
@@ -238,7 +254,7 @@ describe("ProviderCommandReactor", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-create"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         projectId: asProjectId("project-1"),
-        title: "Thread",
+        title: input?.threadTitle ?? "Thread",
         model: "gpt-5-codex",
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
@@ -258,6 +274,7 @@ describe("ProviderCommandReactor", () => {
       stopSession,
       renameBranch,
       generateBranchName,
+      generateThreadTitle,
       stateDir,
       drain,
     };
@@ -520,6 +537,324 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("generates a first-thread title asynchronously without blocking the provider turn", async () => {
+    const harness = await createHarness({ threadTitle: DEFAULT_NEW_THREAD_TITLE });
+    const now = new Date().toISOString();
+    const titleResult = Promise.withResolvers<{ title: string }>();
+    harness.generateThreadTitle.mockImplementationOnce(() =>
+      Effect.promise(() => titleResult.promise),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-1"),
+          role: "user",
+          text: "provider message text",
+          attachments: [],
+        },
+        titleGenerationModel: "custom/title-model",
+        titleSourceText: "Raw first prompt",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
+      message: "Raw first prompt",
+      model: "custom/title-model",
+    });
+
+    let readModel = await Effect.runPromise(harness.engine.getReadModel());
+    let thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.title).toBe(DEFAULT_NEW_THREAD_TITLE);
+
+    titleResult.resolve({ title: "Fix sidebar layout" });
+
+    await waitFor(async () => {
+      const nextReadModel = await Effect.runPromise(harness.engine.getReadModel());
+      const nextThread = nextReadModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return nextThread?.title === "Fix sidebar layout";
+    });
+
+    readModel = await Effect.runPromise(harness.engine.getReadModel());
+    thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.title).toBe("Fix sidebar layout");
+  });
+
+  it("uses the default title-generation model when the turn omits one", async () => {
+    const harness = await createHarness({ threadTitle: DEFAULT_NEW_THREAD_TITLE });
+    const now = new Date().toISOString();
+    harness.generateThreadTitle.mockImplementationOnce(() =>
+      Effect.succeed({ title: "Fallback model title" }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-default-model"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-default-model"),
+          role: "user",
+          text: "provider message text",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
+      model: DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex,
+      message: "provider message text",
+    });
+  });
+
+  it("does not generate titles for second and later user messages", async () => {
+    const harness = await createHarness({ threadTitle: DEFAULT_NEW_THREAD_TITLE });
+    const now = new Date().toISOString();
+    harness.generateThreadTitle.mockImplementation(() => Effect.succeed({ title: "First title" }));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-first"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-first"),
+          role: "user",
+          text: "first message",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return thread?.title === "First title";
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-second"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-second"),
+          role: "user",
+          text: "second message",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.generateThreadTitle.mock.calls.length).toBe(1);
+  });
+
+  it("does not overwrite a manual rename when the generated title arrives later", async () => {
+    const harness = await createHarness({ threadTitle: DEFAULT_NEW_THREAD_TITLE });
+    const now = new Date().toISOString();
+    const titleResult = Promise.withResolvers<{ title: string }>();
+    harness.generateThreadTitle.mockImplementationOnce(() =>
+      Effect.promise(() => titleResult.promise),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-manual-rename"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-manual-rename"),
+          role: "user",
+          text: "first message",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-thread-manual-rename"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        title: "Manual rename wins",
+      }),
+    );
+
+    titleResult.resolve({ title: "Generated title loses" });
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return thread?.title === "Manual rename wins";
+    });
+  });
+
+  it("applies a fallback heuristic title when generation fails", async () => {
+    const harness = await createHarness({ threadTitle: DEFAULT_NEW_THREAD_TITLE });
+    const now = new Date().toISOString();
+    harness.generateThreadTitle.mockImplementationOnce(() =>
+      Effect.fail(
+        new TextGenerationError({
+          operation: "generateThreadTitle",
+          detail: "simulated failure",
+        }),
+      ),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-fallback"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-fallback"),
+          role: "user",
+          text: "provider message text",
+          attachments: [],
+        },
+        titleSourceText: "  Fix the oversized sidebar width.  ",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return thread?.title === "Fix the oversized sidebar width";
+    });
+  });
+
+  it("does not apply a generated title after a second user message arrives", async () => {
+    const harness = await createHarness({ threadTitle: DEFAULT_NEW_THREAD_TITLE });
+    const now = new Date().toISOString();
+    const titleResult = Promise.withResolvers<{ title: string }>();
+    harness.generateThreadTitle.mockImplementationOnce(() =>
+      Effect.promise(() => titleResult.promise),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-race-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-race-1"),
+          role: "user",
+          text: "first message",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-race-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-race-2"),
+          role: "user",
+          text: "second message",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    titleResult.resolve({ title: "Should not apply" });
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.title).toBe(DEFAULT_NEW_THREAD_TITLE);
+  });
+
+  it("does not apply a generated title after the thread is deleted", async () => {
+    const harness = await createHarness({ threadTitle: DEFAULT_NEW_THREAD_TITLE });
+    const now = new Date().toISOString();
+    const titleResult = Promise.withResolvers<{ title: string }>();
+    harness.generateThreadTitle.mockImplementationOnce(() =>
+      Effect.promise(() => titleResult.promise),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-title-delete"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-title-delete"),
+          role: "user",
+          text: "first message",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.makeUnsafe("cmd-thread-delete-before-title"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+      }),
+    );
+
+    titleResult.resolve({ title: "Should not apply" });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.deletedAt).not.toBeNull();
+    expect(thread?.title).toBe(DEFAULT_NEW_THREAD_TITLE);
   });
 
   it("does not stop the active session when restart fails before rebind", async () => {

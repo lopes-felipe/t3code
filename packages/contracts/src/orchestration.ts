@@ -29,6 +29,7 @@ export const ORCHESTRATION_WS_CHANNELS = {
 
 export const ProviderKind = Schema.Literal("codex");
 export type ProviderKind = typeof ProviderKind.Type;
+export const DEFAULT_NEW_THREAD_TITLE = "New thread";
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
   "on-failure",
@@ -383,6 +384,8 @@ export const ThreadTurnStartCommand = Schema.Struct({
   }),
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
+  titleGenerationModel: Schema.optional(TrimmedNonEmptyString),
+  titleSourceText: Schema.optional(Schema.String),
   modelOptions: Schema.optional(ProviderModelOptions),
   providerOptions: Schema.optional(ProviderStartOptions),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
@@ -405,6 +408,8 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   }),
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
+  titleGenerationModel: Schema.optional(TrimmedNonEmptyString),
+  titleSourceText: Schema.optional(Schema.String),
   modelOptions: Schema.optional(ProviderModelOptions),
   providerOptions: Schema.optional(ProviderStartOptions),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
@@ -701,6 +706,8 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   messageId: MessageId,
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
+  titleGenerationModel: Schema.optional(TrimmedNonEmptyString),
+  titleSourceText: Schema.optional(Schema.String),
   modelOptions: Schema.optional(ProviderModelOptions),
   providerOptions: Schema.optional(ProviderStartOptions),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
