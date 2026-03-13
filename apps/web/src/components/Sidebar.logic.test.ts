@@ -4,13 +4,23 @@ import { describe, expect, it } from "vitest";
 import {
   buildRenderedProjectThreadIds,
   getVisibleSidebarThreadIds,
-  hasUnseenCompletion,
   resolveSidebarNewThreadEnvMode,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldClearThreadSelectionOnMouseDown,
   threadBucketExpansionKey,
 } from "./Sidebar.logic";
+
+function makeLatestTurn() {
+  return {
+    turnId: "turn-1" as never,
+    state: "completed" as const,
+    assistantMessageId: null,
+    requestedAt: "2026-03-09T10:00:00.000Z",
+    startedAt: "2026-03-09T10:00:00.000Z",
+    completedAt: "2026-03-09T10:05:00.000Z",
+  };
+}
 
 describe("shouldClearThreadSelectionOnMouseDown", () => {
   it("preserves selection for thread items", () => {

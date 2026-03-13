@@ -1,5 +1,9 @@
 import type { ProjectId, ThreadId } from "@t3tools/contracts";
-import { type ThreadStatusPill, hasUnseenCompletion, resolveThreadStatusPill } from "../threadStatus";
+import {
+  type ThreadStatusPill,
+  hasUnseenCompletion,
+  resolveThreadStatusPill,
+} from "../threadStatus";
 import { cn } from "../lib/utils";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";

@@ -96,7 +96,12 @@ export function BranchToolbarBranchSelector({
       autoRefresh: settings.enableGitStatusAutoRefresh,
     }),
   );
-  const branchStatusQuery = useQuery(gitStatusQueryOptions(branchCwd));
+  const branchStatusQuery = useQuery(
+    gitStatusQueryOptions({
+      cwd: branchCwd,
+      autoRefresh: settings.enableGitStatusAutoRefresh,
+    }),
+  );
   const branches = useMemo(
     () => dedupeRemoteBranchesWithLocalMatches(branchesQuery.data?.branches ?? []),
     [branchesQuery.data?.branches],
