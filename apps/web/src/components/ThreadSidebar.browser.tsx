@@ -341,6 +341,14 @@ function querySidebarThreadRowByTitle(title: string): HTMLElement | null {
   return querySidebarThreadRowsByTitle(title)[0] ?? null;
 }
 
+function querySidebarButtonByText(text: string): HTMLElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>("button")).find(
+      (element) => element.textContent?.trim() === text,
+    ) ?? null
+  );
+}
+
 function queryProjectButton(projectName: string): HTMLElement | null {
   return (
     Array.from(document.querySelectorAll<HTMLElement>("[data-slot='sidebar-menu-button']")).find(
@@ -828,6 +836,54 @@ describe("Thread sidebar", () => {
       expect(querySidebarThreadRowByTitle("Preview thread 3")).toBeTruthy();
       expect(querySidebarThreadRowByTitle("Preview thread 2")).toBeNull();
       expect(querySidebarThreadRowByTitle("Preview thread 1")).toBeNull();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders archived threads in a collapsed archived section that can be expanded", async () => {
+    const activeThreadId = "active-thread" as ThreadId;
+    const archivedThreadId = "archived-thread" as ThreadId;
+    const mounted = await mountApp({
+      width: 1_400,
+      initialEntries: [`/${activeThreadId}`],
+      configureFixture: (nextFixture) => {
+        nextFixture.snapshot = createSnapshot([
+          createSnapshotThread({
+            id: activeThreadId,
+            title: "Active thread",
+            createdAt: "2026-03-11T12:00:00.000Z",
+            lastInteractionAt: "2026-03-11T12:00:00.000Z",
+            updatedAt: "2026-03-11T12:00:00.000Z",
+          }),
+          createSnapshotThread({
+            id: archivedThreadId,
+            title: "Archived thread",
+            createdAt: "2026-03-11T11:55:00.000Z",
+            lastInteractionAt: "2026-03-11T11:55:00.000Z",
+            updatedAt: "2026-03-11T11:55:00.000Z",
+            archivedAt: "2026-03-11T12:10:00.000Z",
+          }),
+        ]);
+        nextFixture.welcome = {
+          ...nextFixture.welcome,
+          bootstrapThreadId: activeThreadId,
+        };
+      },
+    });
+
+    try {
+      await waitForSidebarThreadRow("Active thread");
+      const archivedToggle = await waitForElement(
+        () => querySidebarButtonByText("Archived"),
+        "Archived section toggle should render for projects with archived threads.",
+      );
+
+      expect(querySidebarThreadRowByTitle("Archived thread")).toBeNull();
+
+      archivedToggle.click();
+
+      await waitForSidebarThreadRow("Archived thread");
     } finally {
       await mounted.cleanup();
     }

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_TIMESTAMP_FORMAT,
   getAppModelOptions,
+  getSlashModelOptions,
   normalizeCustomModelSlugs,
   parsePersistedAppSettings,
   resolveAuxiliaryAppModelSelection,
@@ -147,6 +148,20 @@ describe("resolveAuxiliaryAppModelSelection", () => {
         DEFAULT_THREAD_TITLE_MODEL_BY_PROVIDER.codex,
       ),
     ).toBe("gpt-5.3-codex");
+  });
+});
+
+describe("getSlashModelOptions", () => {
+  it("includes saved custom model slugs for /model command suggestions", () => {
+    const options = getSlashModelOptions("codex", ["custom/internal-model"], "", "gpt-5.3-codex");
+
+    expect(options.some((option) => option.slug === "custom/internal-model")).toBe(true);
+  });
+
+  it("filters slash-model suggestions across built-in and custom model names", () => {
+    const options = getSlashModelOptions("codex", ["openai/gpt-oss-120b"], "oss", "gpt-5.3-codex");
+
+    expect(options.map((option) => option.slug)).toEqual(["openai/gpt-oss-120b"]);
   });
 });
 
