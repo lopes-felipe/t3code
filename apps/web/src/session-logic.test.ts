@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  derivePhase,
   PROVIDER_OPTIONS,
   derivePendingApprovals,
   derivePendingUserInputs,
@@ -21,6 +22,7 @@ import {
   hasToolActivityForTurn,
   isLatestTurnSettled,
 } from "./session-logic";
+import type { ThreadSession } from "./types";
 
 function makeActivity(overrides: {
   id?: string;
@@ -171,6 +173,21 @@ describe("derivePendingApprovals", () => {
     ];
 
     expect(derivePendingApprovals(activities)).toEqual([]);
+  });
+});
+
+describe("derivePhase", () => {
+  it("treats errored sessions as disconnected instead of ready", () => {
+    const session: ThreadSession = {
+      provider: "codex",
+      status: "error",
+      orchestrationStatus: "error",
+      createdAt: "2026-02-23T00:00:00.000Z",
+      updatedAt: "2026-02-23T00:00:01.000Z",
+      lastError: "Provider crashed",
+    };
+
+    expect(derivePhase(session)).toBe("disconnected");
   });
 });
 
