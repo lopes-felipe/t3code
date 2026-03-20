@@ -15,6 +15,7 @@ interface PendingRequest {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
+  sent: boolean;
 }
 
 interface SubscribeOptions {
@@ -39,6 +40,11 @@ interface WsRequestEnvelope {
   };
 }
 
+interface QueuedRequest {
+  id: string;
+  encodedMessage: string;
+}
+
 function asError(value: unknown, fallback: string): Error {
   if (value instanceof Error) {
     return value;
@@ -52,7 +58,7 @@ export class WsTransport {
   private readonly pending = new Map<string, PendingRequest>();
   private readonly listeners = new Map<string, Set<(message: WsPush) => void>>();
   private readonly latestPushByChannel = new Map<string, WsPush>();
-  private readonly outboundQueue: string[] = [];
+  private readonly outboundQueue: QueuedRequest[] = [];
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
@@ -92,9 +98,10 @@ export class WsTransport {
         resolve: resolve as (result: unknown) => void,
         reject,
         timeout,
+        sent: false,
       });
 
-      this.send(encoded);
+      this.send({ id, encodedMessage: encoded });
     });
   }
 
@@ -182,6 +189,7 @@ export class WsTransport {
         this.state = "disposed";
         return;
       }
+      this.failPendingSentRequests("WebSocket connection closed before a response was received.");
       this.state = "closed";
       this.scheduleReconnect();
     });
@@ -235,12 +243,12 @@ export class WsTransport {
     pending.resolve(message.result);
   }
 
-  private send(encodedMessage: string) {
+  private send(request: QueuedRequest) {
     if (this.disposed) {
       return;
     }
 
-    this.outboundQueue.push(encodedMessage);
+    this.outboundQueue.push(request);
     try {
       this.flushQueue();
     } catch {
@@ -254,16 +262,31 @@ export class WsTransport {
     }
 
     while (this.outboundQueue.length > 0) {
-      const message = this.outboundQueue.shift();
-      if (!message) {
+      const request = this.outboundQueue.shift();
+      if (!request) {
         continue;
       }
       try {
-        this.ws.send(message);
+        this.ws.send(request.encodedMessage);
+        const pending = this.pending.get(request.id);
+        if (pending) {
+          pending.sent = true;
+        }
       } catch (error) {
-        this.outboundQueue.unshift(message);
+        this.outboundQueue.unshift(request);
         throw asError(error, "Failed to send WebSocket request.");
       }
+    }
+  }
+
+  private failPendingSentRequests(message: string) {
+    for (const [id, pending] of this.pending) {
+      if (!pending.sent) {
+        continue;
+      }
+      clearTimeout(pending.timeout);
+      pending.reject(new Error(message));
+      this.pending.delete(id);
     }
   }
 

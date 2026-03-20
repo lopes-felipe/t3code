@@ -206,4 +206,20 @@ describe("WsTransport", () => {
     await expect(requestPromise).resolves.toEqual({ projects: [] });
     transport.dispose();
   });
+
+  it("rejects sent requests immediately when the socket closes before a response arrives", async () => {
+    const transport = new WsTransport("ws://localhost:3020");
+    const socket = getSocket();
+    socket.open();
+
+    const requestPromise = transport.request("projects.list");
+    expect(socket.sent).toHaveLength(1);
+
+    socket.close();
+
+    await expect(requestPromise).rejects.toThrow(
+      "WebSocket connection closed before a response was received.",
+    );
+    transport.dispose();
+  });
 });
