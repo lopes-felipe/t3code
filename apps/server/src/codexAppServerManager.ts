@@ -1283,8 +1283,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     clearTimeout(pending.timeout);
     context.pending.delete(key);
 
-    if (response.error?.message) {
-      pending.reject(new Error(`${pending.method} failed: ${String(response.error.message)}`));
+    if (response.error) {
+      const detail = response.error.message ?? `error code ${response.error.code}`;
+      pending.reject(new Error(`${pending.method} failed: ${detail}`));
       return;
     }
 
