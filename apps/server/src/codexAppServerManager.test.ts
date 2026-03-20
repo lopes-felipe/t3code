@@ -935,6 +935,47 @@ describe("collab child conversation routing", () => {
   });
 });
 
+describe("handleResponse", () => {
+  function createHandleResponseHarness() {
+    const manager = new CodexAppServerManager();
+    const resolve = vi.fn();
+    const reject = vi.fn();
+    const timeout = setTimeout(() => {}, 10_000);
+    const pending = new Map<string, { method: string; timeout: ReturnType<typeof setTimeout>; resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+    pending.set("1", { method: "test/method", timeout, resolve, reject });
+    const context = { pending } as unknown;
+
+    const handleResponse = (
+      manager as unknown as {
+        handleResponse: (context: unknown, response: { id: string | number; result?: unknown; error?: { code?: number; message?: string } }) => void;
+      }
+    ).handleResponse.bind(manager);
+
+    return { handleResponse, context, pending, resolve, reject, timeout };
+  }
+
+  it("resolves the pending request on a successful response", () => {
+    const { handleResponse, context, resolve, reject } = createHandleResponseHarness();
+    handleResponse(context, { id: 1, result: { ok: true } });
+    expect(resolve).toHaveBeenCalledWith({ ok: true });
+    expect(reject).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the response has an error with a message", () => {
+    const { handleResponse, context, resolve, reject } = createHandleResponseHarness();
+    handleResponse(context, { id: 1, error: { code: -32600, message: "Invalid request" } });
+    expect(reject).toHaveBeenCalledWith(expect.objectContaining({ message: "test/method failed: Invalid request" }));
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the response has an error with a code but no message", () => {
+    const { handleResponse, context, resolve, reject } = createHandleResponseHarness();
+    handleResponse(context, { id: 1, error: { code: -32600 } });
+    expect(reject).toHaveBeenCalledWith(expect.objectContaining({ message: "test/method failed: error code -32600" }));
+    expect(resolve).not.toHaveBeenCalled();
+  });
+});
+
 describe.skipIf(!process.env.CODEX_BINARY_PATH)("startSession live Codex resume", () => {
   it("keeps prior thread history when resuming with a changed runtime mode", async () => {
     const workspaceDir = mkdtempSync(path.join(os.tmpdir(), "codex-live-resume-"));
